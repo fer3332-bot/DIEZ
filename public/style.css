@@ -1,0 +1,172 @@
+:root {
+  --pano: #4a1620;
+  --pano-osc: #2e0d14;
+  --laton: #d6a84a;
+  --laton-claro: #f0d48f;
+  --marfil: #fbf6ea;
+  --tinta: #1d1416;
+  --rojo: #b3261e;
+  --texto: #f6ece0;
+  --tenue: #c9b3a8;
+  --cw: 44px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { background: var(--pano-osc); }
+html, body { margin: 0; min-height: 100vh; }
+body {
+  font-family: 'Alegreya Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--texto);
+  background:
+    radial-gradient(120% 70% at 50% 0%, #5e1d29 0%, var(--pano) 45%, var(--pano-osc) 100%) no-repeat;
+  background-color: var(--pano-osc);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior-y: contain;
+}
+#app { max-width: 640px; margin: 0 auto; padding: 14px 14px 40px; }
+button, input { font: inherit; }
+button {
+  border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.1); color: var(--texto); font-weight: 600;
+  min-height: 46px; touch-action: manipulation;
+}
+button:disabled { opacity: 0.4; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--laton-claro); outline-offset: 2px; }
+button.principal { background: var(--laton); color: var(--tinta); }
+button.ganar { background: var(--laton-claro); color: var(--tinta); font-size: 19px; box-shadow: 0 0 0 3px var(--laton), 0 0 24px rgba(240, 212, 143, 0.6); }
+button.chico { min-height: 36px; padding: 6px 12px; font-size: 15px; }
+button.texto { background: none; text-decoration: underline; padding: 6px; min-height: 0; color: var(--tenue); }
+input {
+  width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(214, 168, 74, 0.5);
+  background: rgba(0, 0, 0, 0.25); color: var(--texto); font-size: 18px;
+}
+input::placeholder { color: #a08a80; }
+
+/* Portada */
+.portada { text-align: center; padding: 34px 0 18px; }
+.portada h1 {
+  font-family: 'Alegreya', Georgia, serif; font-weight: 800; font-size: 76px; line-height: 0.9;
+  margin: 0; color: var(--laton-claro); letter-spacing: -1px;
+  text-shadow: 0 2px 0 #7a5a1a, 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.portada p { margin: 10px 0 0; color: var(--tenue); }
+.abanico { display: flex; justify-content: center; margin: 22px 0 6px; height: 92px; }
+.abanico .carta { --cw: 58px; margin: 0 -10px; transform-origin: 50% 120%; }
+.bloque { margin-top: 22px; }
+.bloque label { display: block; margin-bottom: 6px; color: var(--tenue); font-size: 15px; }
+.fila { display: flex; gap: 8px; }
+.fila > * { flex: 1; }
+.fila > button { flex: 0 0 auto; }
+.ancho { width: 100%; }
+.aviso { margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(0, 0, 0, 0.3); color: var(--laton-claro); }
+.aviso.error { color: #ffb4a9; }
+.separador { text-align: center; color: var(--tenue); margin: 18px 0 10px; font-size: 15px; }
+
+/* Encabezado de mesa */
+.top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.top .codigo { font-family: 'Alegreya', Georgia, serif; font-size: 24px; font-weight: 800; color: var(--laton-claro); letter-spacing: 2px; }
+.top .esp { flex: 1; }
+.estado-red { font-size: 13px; color: #ffb4a9; }
+
+/* Cartas */
+.carta {
+  width: var(--cw); height: calc(var(--cw) * 1.42); flex: 0 0 auto;
+  background: var(--marfil); color: var(--tinta); border-radius: calc(var(--cw) * 0.12);
+  box-shadow: 0 1px 0 #d9ceb4, 0 2px 6px rgba(0, 0, 0, 0.45);
+  position: relative; display: inline-block; user-select: none; -webkit-user-select: none;
+  font-family: 'Alegreya', Georgia, serif;
+  transition: transform 0.12s ease;
+}
+.carta .r { position: absolute; top: 3%; left: 9%; font-size: calc(var(--cw) * 0.4); font-weight: 800; line-height: 1; }
+.carta .p1 { position: absolute; top: 33%; left: 9%; font-size: calc(var(--cw) * 0.28); line-height: 1; }
+.carta .p { position: absolute; right: 8%; bottom: 4%; font-size: calc(var(--cw) * 0.62); line-height: 1; }
+.carta.roja { color: var(--rojo); }
+.carta.sel { transform: translateY(-12px); box-shadow: 0 0 0 3px var(--laton), 0 8px 14px rgba(0, 0, 0, 0.5); }
+.carta.apagada { filter: brightness(0.55); }
+.carta.nueva::after { content: ''; position: absolute; inset: -4px; border-radius: inherit; border: 2px dashed var(--laton-claro); }
+.carta.dorso {
+  background: repeating-linear-gradient(45deg, #7a2232 0 4px, #5a1823 4px 8px);
+  border: 2px solid var(--marfil);
+}
+.carta.mini { --cw: 26px; }
+.carta.media { --cw: 34px; }
+.carta.grande { --cw: 96px; }
+
+/* Rivales */
+.rivales { display: grid; gap: 8px; }
+.rival {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center;
+  padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.22);
+  border: 2px solid transparent;
+}
+.rival.decide { border-color: var(--laton); box-shadow: 0 0 0 4px rgba(214, 168, 74, 0.18); }
+.rival .nombre { font-weight: 700; }
+.rival .cuenta { display: flex; align-items: center; gap: 6px; color: var(--tenue); font-size: 15px; }
+.rival .juegos { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.etiqueta { font-size: 13px; padding: 1px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.12); color: var(--tenue); margin-left: 6px; font-weight: 600; }
+.etiqueta.off { background: rgba(179, 38, 30, 0.35); color: #ffd2cc; }
+.juego { display: flex; gap: 2px; padding: 3px; border-radius: 6px; background: rgba(0, 0, 0, 0.25); }
+.juego.toc { cursor: pointer; outline: 2px dashed rgba(240, 212, 143, 0.6); }
+.juego.sel { outline: 3px solid var(--laton-claro); }
+
+/* Centro de la mesa */
+.centro {
+  margin: 14px 0; padding: 18px 14px 16px; border-radius: 20px;
+  background: radial-gradient(80% 90% at 50% 40%, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.25));
+  border: 1px solid rgba(214, 168, 74, 0.35);
+  text-align: center;
+}
+.centro .pila { display: flex; justify-content: center; align-items: center; gap: 22px; }
+.mazo { position: relative; }
+.mazo .num { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; color: var(--marfil); font-size: 18px; text-shadow: 0 1px 3px #000; }
+.oferta { position: relative; }
+.oferta.mia .carta { box-shadow: 0 0 0 4px var(--laton-claro), 0 0 30px rgba(240, 212, 143, 0.55), 0 6px 14px rgba(0, 0, 0, 0.5); }
+.oferta .carta { animation: entra 0.28s ease-out; }
+@keyframes entra { from { transform: translateY(-14px) rotate(-6deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .oferta .carta { animation: none; } .carta { transition: none; } }
+.origen { color: var(--tenue); font-size: 15px; margin-top: 10px; }
+.quien { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.quien.mia { color: var(--laton-claro); }
+.acciones { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+.acciones button { flex: 1 1 0; max-width: 200px; }
+.pista { margin-top: 10px; color: var(--laton-claro); font-size: 16px; }
+.apuesta { display: inline-block; margin-top: 8px; padding: 2px 10px; border-radius: 999px; background: var(--rojo); color: #fff; font-weight: 700; font-size: 14px; }
+
+/* Mi zona */
+.mio h2 { font-size: 16px; font-weight: 700; color: var(--tenue); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; }
+.mio h2 .esp { flex: 1; }
+.mano { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding-top: 14px; --cw: min(58px, calc((100vw - 64px) / 6.6)); }
+.mano .carta { cursor: pointer; }
+.misjuegos { display: flex; flex-wrap: wrap; gap: 8px; }
+.misjuegos .carta { --cw: 34px; }
+.vacio { color: var(--tenue); font-size: 15px; }
+
+/* Bitácora */
+.bitacora { margin-top: 22px; font-size: 14px; color: var(--tenue); }
+.bitacora div:first-child { color: var(--texto); }
+
+/* Sala de espera */
+.sala { padding: 16px; border-radius: 16px; background: rgba(0, 0, 0, 0.22); }
+.sala .gran-codigo { font-family: 'Alegreya', Georgia, serif; font-size: 54px; font-weight: 800; letter-spacing: 6px; color: var(--laton-claro); text-align: center; }
+.sala ol { padding-left: 22px; margin: 12px 0; }
+.sala li { padding: 6px 0; font-size: 18px; }
+
+/* Final */
+.final { text-align: center; }
+.final h2 { font-family: 'Alegreya', Georgia, serif; font-size: 34px; margin: 4px 0; color: var(--laton-claro); }
+.final .juegos-ganador { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 14px 0; }
+.final .juegos-ganador .carta { --cw: 38px; }
+.manos-finales { text-align: left; margin-top: 14px; }
+.manos-finales div { margin: 8px 0; }
+
+/* Reglas */
+.modal { position: fixed; inset: 0; background: rgba(20, 5, 8, 0.82); display: none; z-index: 10; overflow: auto; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+.modal.abierto { display: block; }
+.modal .hoja { max-width: 600px; margin: 20px auto; padding: 20px; background: var(--marfil); color: var(--tinta); border-radius: 16px; line-height: 1.55; }
+.modal h2 { font-family: 'Alegreya', Georgia, serif; margin: 0 0 8px; font-size: 28px; }
+.modal h3 { margin: 16px 0 4px; font-size: 18px; }
+.modal ul { padding-left: 20px; margin: 4px 0; }
+.modal button { background: var(--pano); color: var(--marfil); margin-top: 14px; }
+
+.instalar { margin-top: 18px; font-size: 15px; color: var(--tenue); text-align: center; }

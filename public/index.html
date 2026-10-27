@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Diez · Juego de cartas</title>
+  <meta name="description" content="Juego de cartas en línea para 2 a 4 amigos">
+  <meta name="theme-color" content="#2e0d14">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Diez">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya:wght@700;800&family=Alegreya+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main id="app"></main>
+  <div class="modal" id="reglas" role="dialog" aria-modal="true" aria-labelledby="reglas-titulo">
+    <div class="hoja">
+      <h2 id="reglas-titulo">Cómo se juega</h2>
+      <p>Baraja inglesa de 52 cartas, sin comodines. De 2 a 4 jugadores. Cada quien recibe 9 cartas.</p>
+      <h3>Objetivo</h3>
+      <p>Juntar 10 cartas en juegos: lo normal son dos juegos de 3 y uno de 4. Los juegos expuestos pueden crecer, así que cualquier combinación que use las 10 cartas también gana.</p>
+      <h3>Juegos válidos</h3>
+      <ul>
+        <li><b>Tercia:</b> 3 o 4 cartas del mismo valor, de palos distintos (5♠ 5♥ 5♣).</li>
+        <li><b>Corrida:</b> 3 o más cartas seguidas del mismo palo (6♦ 7♦ 8♦). El As vale 1 y solo va bajo el 2 (A-2-3). La K es la mayor.</li>
+      </ul>
+      <h3>Inicio</h3>
+      <ul>
+        <li>Cada jugador pasa 1 carta de cambio al jugador siguiente (sentido antihorario).</li>
+        <li>Se descubre la primera carta del mazo. Empieza el jugador a la derecha de quien repartió.</li>
+      </ul>
+      <h3>Cada carta en juego</h3>
+      <ul>
+        <li>La carta se ofrece primero a quien le toca y luego a los demás, en orden antihorario.</li>
+        <li>Si te sirve, la tomas y ese juego cae a la mesa a la vista de todos. Luego <b>pagas</b> soltando otra carta de tu mano.</li>
+        <li>Tu pago se ofrece primero al siguiente jugador, y así sucesivamente.</li>
+        <li>Un juego que ya está en la mesa puede seguir recibiendo cartas. Cada carta que tomas se paga con una de tu mano.</li>
+        <li>Si nadie quiere la carta, se descubre otra del mazo y le toca al siguiente.</li>
+        <li>Los juegos que te salieron en la repartida se quedan ocultos en tu mano hasta que ganes.</li>
+      </ul>
+      <h3>Final</h3>
+      <ul>
+        <li>Gana quien completa las 10 cartas en juegos al tomar una carta. Al ganar no se paga.</li>
+        <li>Si se acaba el mazo y nadie gana, la próxima partida <b>va doble</b>, luego triple, y así hasta que alguien gane.</li>
+        <li>Si alguien pierde la conexión, después de unos segundos pasa automáticamente para no trabar la mesa. Puede volver a entrar con el mismo código.</li>
+      </ul>
+      <button class="ancho" data-act="cerrar-reglas">Entendido</button>
+    </div>
+  </div>
+  <script src="/rules.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
