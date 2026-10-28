@@ -152,30 +152,43 @@ input::placeholder { color: rgba(220, 255, 225, 0.45); }
 
 /* ---------- Pantalla de mesa ---------- */
 .barra { display: flex; align-items: center; gap: 5px; padding: 8px 8px; }
+.barra .esp { flex: 1; min-width: 0; }
 .barra .chip { padding: 4px 10px; flex: 0 0 auto; }
 .barra .chip.codigo { font-size: 18px; letter-spacing: 2px; }
-.barra .esp { flex: 1; }
-.tapete { position: relative; height: clamp(390px, calc(100dvh - 285px), 600px); margin: 0 6px; }
-.tapete::before {
-  content: ''; position: absolute; inset: 6% 4% 4%; border-radius: 50% / 42%;
-  border: 2px solid rgba(255, 230, 150, 0.22); pointer-events: none;
+@media (max-width: 400px) {
+  .barra .lbl { display: none; }
+  .barra .chip { padding: 4px 8px; min-height: 34px; }
+  .barra .chip.codigo { font-size: 16px; letter-spacing: 1px; }
 }
-.rival { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 46%; max-width: 200px; text-align: center; }
-.rival.p-top { left: 50%; top: 2px; transform: translateX(-50%); }
-.rival.p-tl { left: 2px; top: 2px; align-items: flex-start; text-align: left; }
-.rival.p-tr { right: 2px; top: 2px; align-items: flex-end; text-align: right; }
-.rival.p-left { left: 0; top: 25%; align-items: flex-start; text-align: left; width: 30%; }
-.rival.p-right { right: 0; top: 25%; align-items: flex-end; text-align: right; width: 30%; }
-.rival .cabeza { display: flex; align-items: center; gap: 6px; }
-.rival.p-right .cabeza, .rival.p-tr .cabeza { flex-direction: row-reverse; }
-.rival .datos { display: flex; flex-direction: column; gap: 2px; align-items: inherit; }
-.rival.p-top .datos { align-items: center; }
-.abanico-dorsos { position: relative; height: 34px; width: 74px; }
-.abanico-dorsos .carta { position: absolute; top: 2px; --w: 22px; }
-.abanico-dorsos b { position: absolute; right: -2px; bottom: -4px; font-size: 12px; font-weight: 900; background: #fff; color: #1e5e33; border-radius: 999px; padding: 0 5px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
-.juegos { display: flex; flex-wrap: wrap; gap: 4px; justify-content: inherit; }
-.rival.p-top .juegos { justify-content: center; }
-.rival.p-right .juegos, .rival.p-tr .juegos { justify-content: flex-end; }
+
+/* La mesa es una cuadrícula: nada se encima, se acomoda al tamaño de la pantalla */
+.tapete {
+  position: relative; margin: 0 6px; padding: 8px 4px 10px;
+  display: grid; gap: 8px 6px; align-items: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas: "l t r" "c c c" "b b b" "a a a";
+}
+.tapete::before {
+  content: ''; position: absolute; inset: 2% 1% 0; border-radius: 50% / 40%;
+  border: 2px solid rgba(255, 230, 150, 0.2); pointer-events: none;
+}
+.p-left, .p-tl { grid-area: l; }
+.p-top { grid-area: t; }
+.p-right, .p-tr { grid-area: r; }
+.p-bottom { grid-area: b; }
+.tapete > .centro { grid-area: c; }
+.tapete > .acciones-barra { grid-area: a; }
+
+.rival { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.rival .cabeza { display: flex; flex-direction: column; align-items: center; gap: 3px; max-width: 100%; }
+.rival .fila-av { display: flex; align-items: center; gap: 4px; }
+.rival .datos { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 3px; max-width: 100%; }
+.rival .etq-nombre { max-width: 100%; }
+.abanico-dorsos { --dw: 20px; position: relative; height: 32px; width: calc(var(--dw) + (var(--n, 9) - 1) * 5px + 10px); flex: 0 0 auto; }
+.abanico-dorsos .carta { position: absolute; top: 2px; --w: var(--dw); }
+.abanico-dorsos b { position: absolute; right: -4px; bottom: -4px; font-size: 12px; font-weight: 900; background: #fff; color: #1e5e33; border-radius: 999px; padding: 0 5px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+.juegos { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; max-width: 100%; }
+.rival .carta.xs { --w: 24px; }
 .juego { display: flex; padding: 2px; border-radius: 6px; }
 .juego .carta { margin-left: calc(var(--w) * -0.55); }
 .juego .carta:first-child { margin-left: 0; }
@@ -185,43 +198,55 @@ input::placeholder { color: rgba(220, 255, 225, 0.45); }
 @keyframes burbuja { 0% { opacity: 0; transform: translate(-50%, 6px) scale(0.8); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -14px); } }
 
 /* Centro de la mesa */
-.centro { position: absolute; left: 50%; top: 47%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; pointer-events: none; }
-.centro > * { pointer-events: auto; }
-.pila { display: flex; align-items: center; justify-content: center; gap: 18px; }
-.mazo { position: relative; width: 50px; height: 70px; }
+.centro { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 4px 0; min-width: 0; }
+.pila { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.mazo { position: relative; width: 50px; height: 70px; flex: 0 0 auto; }
 .mazo .carta { position: absolute; --w: 50px; }
 .mazo .num { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); z-index: 2; font-size: 12px; font-weight: 900; background: #fff; color: #1e5e33; border-radius: 999px; padding: 0 7px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
-.oferta { position: relative; width: 82px; height: 115px; display: grid; place-items: center; }
+.oferta { position: relative; width: 82px; height: 115px; display: grid; place-items: center; flex: 0 0 auto; }
+.oferta .carta { --w: 82px; }
 .oferta.mia .carta { box-shadow: 0 0 0 3px var(--oro), 0 0 26px rgba(255, 225, 130, 0.9), 0 6px 14px rgba(0, 0, 0, 0.45); }
 .oferta .vacio-slot { width: 82px; height: 115px; border-radius: 8px; border: 2px dashed rgba(255, 255, 255, 0.25); }
-.descarte { position: relative; width: 56px; height: 76px; }
+.descarte { position: relative; width: 56px; height: 76px; flex: 0 0 auto; }
 .descarte .carta { position: absolute; left: 6px; top: 4px; --w: 40px; }
-.info-centro { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.info-centro { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 0; }
 .info-centro .chip { cursor: default; min-height: 28px; font-size: 13px; }
-.pozo { display: inline-flex; align-items: center; gap: 0; border-radius: 999px; overflow: hidden; font-weight: 900; box-shadow: 0 0 0 3px #fff, 0 3px 8px rgba(0, 0, 0, 0.35); }
+.pozo { display: inline-flex; align-items: center; border-radius: 999px; overflow: hidden; font-weight: 900; box-shadow: 0 0 0 3px #fff, 0 3px 8px rgba(0, 0, 0, 0.35); white-space: nowrap; }
 .pozo span { padding: 3px 10px; font-size: 14px; }
 .pozo .l1 { background: linear-gradient(#ffd0cb, #f19a90); color: #a31a12; }
 .pozo .l2 { background: linear-gradient(#d8ffe4, var(--menta)); color: #1e5e33; }
-.aviso-mesa { min-height: 22px; font-weight: 800; font-size: 15px; text-align: center; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); padding: 0 12px; }
+.aviso-mesa { font-weight: 800; font-size: 15px; text-align: center; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); padding: 0 8px; overflow-wrap: anywhere; }
+
+/* Acciones */
+.acciones-barra { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.acciones-barra .pista { padding: 3px 12px; border-radius: 14px; background: rgba(0, 40, 10, 0.45); font-weight: 800; text-align: center; font-size: 15px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+.acciones-barra .pista .err { color: #ffd0cb; }
+.acciones-barra .botones { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; padding: 2px 0 6px; }
 
 /* Mi zona */
 .mio { padding: 4px 10px 10px; }
 .mi-fila { display: flex; align-items: center; gap: 8px; min-height: 52px; }
-.mi-fila .misjuegos { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.mi-info { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; min-width: 0; }
+.mi-fila .misjuegos { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
 .mi-fila .vacio { color: var(--tenue); font-size: 14px; font-weight: 700; }
-.acciones-barra { position: absolute; left: 0; right: 0; bottom: 4px; z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
-.acciones-barra > * { pointer-events: auto; }
-.acciones-barra .pista { font-weight: 800; text-align: center; font-size: 15px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
-.acciones-barra .pista .err { color: #ffd0cb; }
-.acciones-barra .botones { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; padding: 4px 0 6px; }
+.mi-fila .orden { flex: 0 0 auto; align-self: flex-start; }
 .mano-wrap { position: relative; height: 124px; margin-top: 2px; }
 .mano-wrap .carta { position: absolute; bottom: 8px; cursor: pointer; transition: transform 0.16s ease, left 0.2s ease; transform-origin: 50% 120%; }
 .mano-wrap .carta.sel { box-shadow: 0 0 0 3px var(--oro), 0 8px 16px rgba(0, 0, 0, 0.45); }
-.orden { position: absolute; right: 0; top: -6px; z-index: 5; }
+.bitacora { text-align: center; font-size: 13px; color: var(--tenue); font-weight: 700; margin-top: 2px; min-height: 18px; }
+@media (max-width: 360px) {
+  .pila { gap: 10px; }
+  .oferta, .oferta .vacio-slot { width: 72px; height: 101px; }
+  .oferta .carta { --w: 72px; }
+  .mazo { width: 42px; height: 59px; } .mazo .carta { --w: 42px; }
+  .descarte { width: 46px; height: 64px; } .descarte .carta { --w: 34px; }
+  .btn { font-size: 16px; padding: 10px 18px; }
+  .rival .carta.xs { --w: 21px; }
+}
 
 /* Final de partida */
-.velo { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 10px; background: rgba(5, 30, 10, 0.55); border-radius: 24px; }
-.final { width: 100%; max-width: 440px; max-height: 100%; overflow: auto; text-align: center; padding: 16px; border-radius: 22px; background: linear-gradient(#2c8a37, #17561f); box-shadow: 0 0 0 3px var(--oro), 0 0 0 6px #6b5114, 0 12px 30px rgba(0, 0, 0, 0.5); }
+.velo { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: rgba(5, 30, 10, 0.6); overflow: auto; }
+.final { width: 100%; max-width: 460px; max-height: calc(100dvh - 32px); overflow: auto; text-align: center; padding: 16px; border-radius: 22px; background: linear-gradient(#2c8a37, #17561f); box-shadow: 0 0 0 3px var(--oro), 0 0 0 6px #6b5114, 0 12px 30px rgba(0, 0, 0, 0.5); }
 .final h2 { margin: 6px 0 2px; font-size: 28px; font-weight: 900; }
 .final .premio { display: inline-block; margin: 6px 0; padding: 2px 14px; border-radius: 999px; font-weight: 900; font-size: 20px; color: #4a3305; background: linear-gradient(#fff2b8, var(--oro)); }
 .final .juegos { justify-content: center; margin: 10px 0; gap: 8px; }
@@ -240,7 +265,7 @@ input::placeholder { color: rgba(220, 255, 225, 0.45); }
 .config .fila { display: flex; gap: 10px; margin-top: 8px; }
 .config label { font-size: 13px; font-weight: 800; color: var(--tenue); display: block; margin-bottom: 4px; }
 .config .fila > div { flex: 1; }
-.interruptor { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 800; cursor: pointer; }
+.config .interruptor, .interruptor { display: flex; font-size: 15px; color: var(--texto); margin: 0; align-items: center; justify-content: space-between; gap: 10px; font-weight: 800; cursor: pointer; }
 .interruptor input { display: none; }
 .interruptor .riel { display: inline-block; width: 52px; height: 30px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); position: relative; transition: background 0.15s; flex: 0 0 auto; }
 .interruptor .riel::after { content: ''; position: absolute; left: 3px; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: left 0.15s; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
@@ -251,7 +276,7 @@ input::placeholder { color: rgba(220, 255, 225, 0.45); }
 .portada { text-align: center; padding: 28px 16px 6px; }
 .portada h1 { margin: 0; font-family: var(--serif); font-weight: 800; font-size: 84px; line-height: 0.95; color: #fff; text-shadow: 0 3px 0 #155c1e, 0 0 0 #000, 0 8px 18px rgba(0, 0, 0, 0.4); }
 .portada p { margin: 6px 0 0; color: var(--tenue); font-weight: 700; }
-.abanico-portada { position: relative; height: 112px; margin: 10px auto 4px; width: 260px; }
+.abanico-portada { position: relative; height: 104px; margin: 6px auto 18px; width: 260px; }
 .abanico-portada .carta { position: absolute; left: 50%; bottom: 0; --w: 62px; transform-origin: 50% 130%; }
 .perfil { display: flex; align-items: center; gap: 14px; margin: 18px 16px 0; }
 .perfil .avatar { --a: 72px; cursor: pointer; }
@@ -284,5 +309,77 @@ input::placeholder { color: rgba(220, 255, 225, 0.45); }
   .mano-wrap .carta { transition: none; }
 }
 
-.rival.p-left .cabeza, .rival.p-right .cabeza { flex-direction: column; align-items: inherit; }
-.bitacora { text-align: center; font-size: 13px; color: var(--tenue); font-weight: 700; margin-top: 2px; min-height: 18px; }
+/* ---------- Computadora y tabletas en horizontal ---------- */
+@media (min-width: 900px) and (min-height: 520px) {
+  :root { --md: clamp(60px, 10.5vh, 80px); --lg: clamp(84px, 15vh, 112px); --mio-h: calc(var(--md) * 1.4 + 92px); }
+  #app { max-width: 1240px; }
+  body { font-size: 17px; }
+  .barra { padding: 10px 16px; gap: 8px; }
+  .tapete {
+    margin: 0 16px; padding: 10px 10px;
+    min-height: calc(100dvh - 64px - var(--mio-h));
+    grid-template-columns: minmax(200px, 1fr) minmax(360px, 1.25fr) minmax(200px, 1fr);
+    grid-template-areas: ". t ." "l c r" ". b .";
+    grid-template-rows: auto 1fr auto;
+    align-items: center; gap: 6px 16px;
+  }
+  .tapete::before { inset: 4% 3% 2%; border-radius: 50%; border-width: 3px; }
+  .p-top { align-self: start; }
+  .p-left, .p-tl { align-items: flex-start; text-align: left; }
+  .p-right, .p-tr { align-items: flex-end; text-align: right; }
+  .p-left .cabeza, .p-tl .cabeza { align-items: flex-start; }
+  .p-right .cabeza, .p-tr .cabeza { align-items: flex-end; }
+  .p-left .datos, .p-tl .datos, .p-left .juegos, .p-tl .juegos { justify-content: flex-start; }
+  .p-right .datos, .p-tr .datos, .p-right .juegos, .p-tr .juegos { justify-content: flex-end; }
+  .p-right .fila-av, .p-tr .fila-av { flex-direction: row-reverse; }
+  .p-top .cabeza { flex-direction: row; gap: 10px; }
+  .rival .carta.xs { --w: 32px; }
+  .carta.sm { --w: 42px; }
+  .carta.md { --w: var(--md); }
+  .oferta .carta { --w: var(--lg); }
+  .oferta, .oferta .vacio-slot { width: var(--lg); height: calc(var(--lg) * 1.4); }
+  .mazo { width: 62px; height: 87px; } .mazo .carta { --w: 62px; }
+  .descarte { width: 74px; height: 96px; } .descarte .carta { --w: 52px; }
+  .pila { gap: 30px; }
+  .abanico-dorsos { --dw: 27px; height: 42px; }
+  .etq-nombre { font-size: 15px; max-width: 180px; }
+  .saldo { font-size: 14px; padding: 1px 10px; }
+  .etq { font-size: 12px; }
+  .aviso-mesa { font-size: 17px; }
+  .info-centro .chip { font-size: 15px; }
+  .pozo span { font-size: 16px; padding: 4px 12px; }
+  /* Mi zona: mis datos | mi mano | botones */
+  .mio { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2.3fr) minmax(220px, 1fr); align-items: center; gap: 12px; padding: 0 20px 8px; min-height: var(--mio-h); }
+  .mio .mi-fila { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .mio .mi-fila .misjuegos { flex: 0 0 auto; }
+  .mio .mano-wrap { height: calc(var(--md) * 1.4 + 30px); margin: 0; }
+  .mio .acciones-barra .botones { flex-direction: column; align-items: stretch; width: 100%; max-width: 240px; gap: 12px; }
+  .mio .acciones-barra .btn { min-height: 44px; padding: 8px 18px; font-size: 17px; }
+  .mio .acciones-barra .pista { font-size: 15px; }
+  .mio .mi-fila .orden { align-self: flex-start; }
+  .mio .bitacora { grid-column: 1 / -1; margin: 0; }
+  .sala { max-width: 720px; margin: 10px auto; padding: 24px; }
+  .portada { padding-top: 48px; }
+  .perfil, .home-cuerpo { max-width: 520px; margin-left: auto; margin-right: auto; }
+  .perfil { padding: 0 16px; }
+  .final { max-width: 560px; }
+  .aviso { max-width: 720px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 900px) and (min-height: 520px) and (hover: hover) {
+  .mano-wrap .carta[data-act]:hover { filter: brightness(1.05); bottom: 16px; }
+  .btn:hover:not(:disabled) { filter: brightness(1.07); }
+  .chip:hover { background: rgba(0, 0, 0, 0.4); }
+}
+.mi-info-fila { min-width: 0; max-width: 100%; }
+.mi-info { flex: 1 1 auto; }
+.mi-info .etq-nombre { max-width: 100%; }
+
+/* Desmoche y orden de la mano */
+.juego .carta.desmochable { cursor: pointer; outline: 2px dashed var(--cielo); outline-offset: -2px; }
+.juego .carta.desmochable.sel { outline: 3px solid var(--oro); transform: translateY(-8px); z-index: 2; }
+.juego .mas { flex: 0 0 auto; align-self: center; margin-left: 4px; width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer; font-weight: 900; font-size: 20px; line-height: 1; color: #1d4f6b; background: linear-gradient(#e2f6ff, var(--cielo)); box-shadow: 0 0 0 2px #3f8db5, 0 2px 4px rgba(0, 0, 0, 0.3); }
+.juego.sel .mas { background: linear-gradient(#fff2b8, var(--oro)); box-shadow: 0 0 0 2px #8a6514; color: #4a3305; }
+.juego.toc { background: rgba(143, 211, 245, 0.15); box-shadow: none; }
+.juego.toc.sel { background: rgba(226, 189, 85, 0.35); box-shadow: 0 0 0 3px var(--oro); }
+.mano-wrap .carta { touch-action: pan-y; }
+.mano-wrap .carta.arrastrando { transition: none !important; cursor: grabbing; z-index: 99 !important; box-shadow: 0 0 0 3px #fff, 0 12px 22px rgba(0, 0, 0, 0.5); }

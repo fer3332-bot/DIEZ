@@ -78,12 +78,33 @@
 
   /* Tomar la carta c: o se forma un juego nuevo con cartas de la mano (use, mínimo 2),
      o se agrega a uno de mis juegos expuestos (ext), opcionalmente con más cartas de la mano. */
-  function applyTake(melds, hand, c, use, ext) {
+  // ¿Se puede sacar la carta d del juego m y que el juego siga siendo válido?
+  function removible(m, d) {
+    if (!Array.isArray(m) || !m.includes(d)) return false;
+    return isMeld(m.filter((x) => x !== d));
+  }
+
+  /* Desmoche: des = {m: índice de MI juego expuesto, c: carta que saco de ese juego}.
+     Esa carta + al menos 1 de mi mano + la carta de afuera forman un juego NUEVO que se expone. */
+  function applyTake(melds, hand, c, use, ext, des) {
     use = Array.isArray(use) ? use : [];
     const nm = melds.map((m) => m.slice());
     const h = hand.slice();
     if (new Set(use).size !== use.length || !use.every((x) => h.includes(x)))
       return { err: 'Cartas inválidas' };
+    if (des && typeof des === 'object') {
+      const i = Number(des.m);
+      const m = nm[i];
+      if (!m || !m.includes(des.c)) return { err: 'Esa carta no está en tus juegos' };
+      if (!removible(m, des.c)) return { err: 'Si sacas el ' + cardName(des.c) + ' ese juego deja de ser válido' };
+      if (use.length < 1) return { err: 'Para desmochar elige también al menos 1 carta de tu mano' };
+      const nuevo = [...use, c, des.c];
+      if (!isMeld(nuevo)) return { err: 'Esas cartas no forman juego con ' + cardName(c) };
+      nm[i] = sortMeld(m.filter((x) => x !== des.c));
+      nm.push(sortMeld(nuevo));
+      use.forEach((x) => h.splice(h.indexOf(x), 1));
+      return { melds: nm, hand: h, desmoche: true };
+    }
     if (ext !== null && ext !== undefined && ext !== '') {
       const i = Number(ext);
       const m = nm[i];
@@ -115,10 +136,28 @@
         if (isMeld([...melds[i], c, hand[a]])) return true;
         for (let b = a + 1; b < n; b++) if (isMeld([...melds[i], c, hand[a], hand[b]])) return true;
       }
-    return false;
+    return opcionesDesmoche(melds, hand, c).length > 0;
   }
 
-  const api = { RANKS, SUITS, SYM, CODE_RE, rv, rankLabel, cardName, newDeck, isMeld, sortMeld, sortHand, winArrangement, applyTake, canUse };
+  // Cartas de mis juegos que se pueden desmochar para usar con c
+  function opcionesDesmoche(melds, hand, c) {
+    const out = [];
+    const n = hand.length;
+    melds.forEach((m, i) => {
+      for (const d of m) {
+        if (!removible(m, d)) continue;
+        let sirve = false;
+        for (let a = 0; a < n && !sirve; a++) {
+          if (isMeld([c, d, hand[a]])) sirve = true;
+          for (let b = a + 1; b < n && !sirve; b++) if (isMeld([c, d, hand[a], hand[b]])) sirve = true;
+        }
+        if (sirve) out.push({ m: i, c: d });
+      }
+    });
+    return out;
+  }
+
+  const api = { RANKS, SUITS, SYM, CODE_RE, rv, rankLabel, cardName, newDeck, isMeld, sortMeld, sortHand, winArrangement, applyTake, canUse, removible, opcionesDesmoche };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Reglas = api;
 })(typeof self !== 'undefined' ? self : this);

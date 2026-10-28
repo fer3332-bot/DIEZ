@@ -237,7 +237,7 @@ class Mesa {
     }
 
     if (a.t === 'tomar') {
-      const res = R.applyTake(s.melds, s.hand, o.c, a.use, a.ext);
+      const res = R.applyTake(s.melds, s.hand, o.c, a.use, a.ext, a.des);
       if (res.err) return res.err;
       const arr = R.winArrangement(res.melds, res.hand);
       if (arr) {
@@ -250,8 +250,8 @@ class Mesa {
       res.hand.splice(res.hand.indexOf(a.pay), 1);
       s.melds = res.melds;
       s.hand = res.hand;
-      this.addLog(`${s.name} tomó el ${R.cardName(o.c)} y pagó con ${R.cardName(a.pay)}`);
-      this.ev('toma', { seat, c: o.c });
+      this.addLog(`${s.name} tomó el ${R.cardName(o.c)}` + (res.desmoche ? ` desmochando el ${R.cardName(a.des.c)}` : '') + ` y pagó con ${R.cardName(a.pay)}`);
+      this.ev('toma', { seat, c: o.c, des: res.desmoche ? a.des.c : undefined });
       this.ev('pago', { seat, c: a.pay });
       const next = (seat + 1) % n;
       this.turn = next;
