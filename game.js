@@ -3,11 +3,9 @@ const crypto = require('crypto');
 const R = require('./public/rules.js');
 
 const MAX = 4;
-const AUSENTE_MS = 25000; // en el cambio: tras este tiempo sin conexión se elige su carta al azar
-const TIEMPO_DECIDIR = Number(process.env.DIEZ_T_DECIDIR) || 5000; // segundos para decidir si tomas la carta
-const TIEMPO_ARMAR = Number(process.env.DIEZ_T_ARMAR) || 25000; // después de tocar "Tomar": tiempo para escoger cartas y pagar
-const TIEMPO_PAGO = Number(process.env.DIEZ_T_PAGO) || 20000; // para pagar cuando te obligaron a tomar
-const TIEMPO_OBLIGAR = Number(process.env.DIEZ_T_OBLIGAR) || 3000; // cuando nadie quiere la carta, tiempo para obligar antes de descartarla
+// Sin relojes para quien está conectado: los jugadores se recuerdan entre ellos cuando alguien se tarda.
+// Solo si un jugador está DESCONECTADO y le toca, pasa solo tras unos segundos.
+const AUSENTE_MS = Number(process.env.DIEZ_T_AUSENTE) || 5000;
 
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
@@ -152,7 +150,6 @@ class Mesa {
     this.recibidas = {};
     this.win = null;
     this.offer = null;
-    this.reloj = null;
     this.pagoPendiente = null;
     for (const s of this.seats) {
       s.hand = this.deck.splice(0, 9);
@@ -169,15 +166,9 @@ class Mesa {
     return null;
   }
 
-  // ---------- reloj de decisión ----------
-  ponerReloj(tipo, seat, ms) {
-    this.reloj = { tipo, seat, hasta: Date.now() + ms, total: ms };
-  }
-
   ofrecer(c, src, by, to) {
     this.offer = { c, src, by, to, start: to, pasaron: [] };
     this.pagoPendiente = null;
-    this.ponerReloj('decidir', to, TIEMPO_DECIDIR);
   }
 
   flip() {
@@ -185,7 +176,6 @@ class Mesa {
       this.fase = 'fin';
       this.win = null;
       this.offer = null;
-      this.reloj = null;
       this.apuesta++;
       this.addLog(`Se acabó el mazo sin ganador: la próxima va ${nombreApuesta(this.apuesta)}`);
       this.ev('empate');
@@ -196,24 +186,25 @@ class Mesa {
     this.ev('flip', { c, seat: this.turn });
   }
 
-  // El jugador que decide pasa la carta (por decisión o porque se le acabó el tiempo)
-  pasar(seat, motivo) {
+  // El jugador que decide pasa la carta
+  pasar(seat, sinSenal) {
     const o = this.offer;
     const nm = this.seats[seat].name;
-    this.addLog(motivo === 'tiempo' ? `A ${nm} se le acabó el tiempo con el ${R.cardName(o.c)}` : `${nm} pasó el ${R.cardName(o.c)}`);
+    this.addLog(sinSenal ? `${nm} no tiene señal: pasó el ${R.cardName(o.c)}` : `${nm} pasó el ${R.cardName(o.c)}`);
     this.ev('pasa', { seat, c: o.c });
     if (!o.pasaron.includes(seat)) o.pasaron.push(seat);
     const n = this.seats.length;
     let next = (o.to + 1) % n;
     if (o.src === 'pago' && next === o.by) next = (next + 1) % n;
-    if (next === o.start) {
-      // Nadie la quiso: unos segundos para que alguien obligue, luego se descarta
-      o.to = -1;
-      this.ponerReloj('muerta', -1, TIEMPO_OBLIGAR);
-    } else {
-      o.to = next;
-      this.ponerReloj('decidir', next, TIEMPO_DECIDIR);
-    }
+    // Nadie la quiso: se queda en la mesa (se puede obligar) hasta que alguien voltee la siguiente
+    o.to = next === o.start ? -1 : next;
+  }
+
+  // Quien voltea la siguiente carta (y tendrá prioridad sobre ella)
+  quienVoltea() {
+    const o = this.offer;
+    if (!o || o.to !== -1) return -1;
+    return o.src === 'mazo' ? (this.turn + 1) % this.seats.length : this.turn;
   }
 
   morir() {
@@ -233,22 +224,6 @@ class Mesa {
     const next = (seat + 1) % this.seats.length;
     this.turn = next;
     this.ofrecer(c, 'pago', seat, next);
-  }
-
-  // Revisa el reloj; devuelve true si algo cambió
-  tick() {
-    const r = this.reloj;
-    if (this.fase !== 'juego' || !r || Date.now() < r.hasta) return false;
-    if (r.tipo === 'muerta') this.morir();
-    else if (r.tipo === 'pago' && this.pagoPendiente) {
-      const s = this.seats[this.pagoPendiente.seat];
-      const ok = R.cartasPagables(s.melds, s.hand);
-      const c = ok[crypto.randomInt(ok.length)];
-      this.addLog(`${s.name} no pagó a tiempo: se pagó con el ${R.cardName(c)}`);
-      this.pagar(this.pagoPendiente.seat, c);
-    } else if (this.offer && this.offer.to >= 0) this.pasar(this.offer.to, 'tiempo');
-    else return false;
-    return true;
   }
 
   accion(pid, a) {
@@ -303,16 +278,20 @@ class Mesa {
       this.ev('toma', { seat: obj, c: o.c, obligado: true });
       this.offer = null;
       this.pagoPendiente = { seat: obj, c: o.c, por: seat };
-      this.ponerReloj('pago', obj, TIEMPO_PAGO);
+      return null;
+    }
+
+    // Nadie quiso la carta: cualquiera voltea la siguiente
+    if (a.t === 'voltear') {
+      if (o.to !== -1) return 'Todavía hay quien decida esta carta';
+      const v = this.quienVoltea();
+      if (v !== seat) return `Le toca voltear a ${this.seats[v].name}`;
+      this.morir();
       return null;
     }
 
     if (o.to !== seat) return 'No es tu turno de decidir';
-
-    if (a.t === 'reclamar') {
-      if (this.reloj && this.reloj.tipo === 'decidir' && this.reloj.seat === seat) this.ponerReloj('armar', seat, TIEMPO_ARMAR);
-      return null;
-    }
+    if (a.t === 'reclamar') return null;
 
     if (a.t === 'pasar') {
       this.pasar(seat);
@@ -378,25 +357,45 @@ class Mesa {
     this.fase = 'fin';
     this.win = { seat, melds: arr, carta: c, apuesta: this.apuesta, premio };
     this.offer = null;
-    this.reloj = null;
     this.pagoPendiente = null;
     this.addLog(`🏆 ¡${this.seats[seat].name} ganó con el ${R.cardName(c)}!` + (premio ? ` Se lleva ${lps(premio)}` : this.apuesta > 1 ? ` (iba ${nombreApuesta(this.apuesta)})` : ''));
     this.ev('gana', { seat, c, premio });
     this.apuesta = 1;
   }
 
+  // Solo para jugadores DESCONECTADOS: tras unos segundos se juega por ellos lo mínimo
   revisarAusentes() {
     const now = Date.now();
-    const ido = (x) => !x.conectado && now - x.desdeAusente > AUSENTE_MS;
+    const ido = (x) => x && !x.conectado && now - x.desdeAusente > AUSENTE_MS;
     let cambio = false;
     for (const x of this.seats) if (!x.conectado && x.voz) { x.voz = false; cambio = true; }
     if (this.fase === 'cambio') {
       for (const x of this.seats)
         if (!this.passes[x.pid] && ido(x)) {
-          this.addLog(`${x.name} no está: se eligió su carta de cambio al azar`);
+          this.addLog(`${x.name} no tiene señal: se eligió su carta de cambio al azar`);
           this.accion(x.pid, { t: 'cambio', c: x.hand[crypto.randomInt(x.hand.length)] });
           cambio = true;
         }
+    }
+    if (this.fase !== 'juego') return cambio;
+    if (this.pagoPendiente && ido(this.seats[this.pagoPendiente.seat])) {
+      const seat = this.pagoPendiente.seat;
+      const x = this.seats[seat];
+      const ok = R.cartasPagables(x.melds, x.hand);
+      const c = ok[crypto.randomInt(ok.length)];
+      this.addLog(`${x.name} no tiene señal: se pagó con el ${R.cardName(c)}`);
+      this.pagar(seat, c);
+      return true;
+    }
+    if (this.offer && this.offer.to >= 0 && ido(this.seats[this.offer.to])) {
+      this.pasar(this.offer.to, true);
+      return true;
+    }
+    const v = this.quienVoltea();
+    if (v >= 0 && ido(this.seats[v])) {
+      this.addLog(`${this.seats[v].name} no tiene señal: se volteó la siguiente carta`);
+      this.morir();
+      return true;
     }
     return cambio;
   }
@@ -419,8 +418,8 @@ class Mesa {
       descarte: this.dead.length,
       muertas: this.dead.slice(-3),
       offer: this.offer,
+      voltea: this.quienVoltea(),
       pagoPendiente: this.pagoPendiente,
-      reloj: this.reloj && this.fase === 'juego' ? { tipo: this.reloj.tipo, seat: this.reloj.seat, restante: Math.max(0, this.reloj.hasta - Date.now()), total: this.reloj.total } : null,
       log: this.log,
       win: this.win,
       config: this.config,
