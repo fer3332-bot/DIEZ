@@ -157,7 +157,23 @@
     return out;
   }
 
-  const api = { RANKS, SUITS, SYM, CODE_RE, rv, rankLabel, cardName, newDeck, isMeld, sortMeld, sortHand, winArrangement, applyTake, canUse, removible, opcionesDesmoche };
+  // No se puede pagar con una carta que encaja en uno de mis juegos expuestos.
+  // Si TODAS las cartas de la mano encajan, se permite cualquiera (para no trabar el juego).
+  function encajaEnJuegos(melds, c) {
+    return melds.findIndex((m) => isMeld([...m, c]));
+  }
+  function cartasPagables(melds, hand) {
+    const libres = hand.filter((c) => encajaEnJuegos(melds, c) < 0);
+    return libres.length ? libres : hand.slice();
+  }
+  function errorPago(melds, hand, c) {
+    if (!hand.includes(c)) return 'Esa carta no está en tu mano';
+    if (cartasPagables(melds, hand).includes(c)) return null;
+    const m = melds[encajaEnJuegos(melds, c)];
+    return `No puedes pagar con el ${cardName(c)}: encaja en tu juego ${m.map(cardName).join(' ')}`;
+  }
+
+  const api = { encajaEnJuegos, cartasPagables, errorPago, RANKS, SUITS, SYM, CODE_RE, rv, rankLabel, cardName, newDeck, isMeld, sortMeld, sortHand, winArrangement, applyTake, canUse, removible, opcionesDesmoche };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Reglas = api;
 })(typeof self !== 'undefined' ? self : this);

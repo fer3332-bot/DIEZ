@@ -215,6 +215,11 @@ const server = http.createServer(async (req, res) => {
   json(res, 405, { error: 'Método no permitido' });
 });
 
+// Relojes de decisión (5 segundos, pagos, etc.)
+setInterval(() => {
+  for (const mesa of mesas.values()) if (mesa.tick()) difundir(mesa);
+}, 200);
+
 // Jugadores ausentes y limpieza de mesas abandonadas
 setInterval(() => {
   const now = Date.now();

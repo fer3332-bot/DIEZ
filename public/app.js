@@ -105,15 +105,17 @@
 
   // ---------- cambios de vista ----------
   let ultimaMia = false;
+  let relojHasta = 0;
   function alCambiarVista(nv) {
     V = nv;
     window.__V = nv;
-    const clave = V.fase + '|' + (V.offer ? [V.offer.c, V.offer.to, V.offer.src, V.offer.by].join(',') : '') + '|' + V.partidas;
+    const clave = V.fase + '|' + (V.offer ? [V.offer.c, V.offer.to, V.offer.src, V.offer.by].join(',') : '') + '|' + (V.pagoPendiente ? 'pp' + V.pagoPendiente.seat : '') + '|' + V.partidas;
+    relojHasta = V.reloj ? performance.now() + V.reloj.restante : 0;
     if (clave !== ui.clave) {
       ui.clave = clave; ui.modo = 'idle'; ui.sel = []; ui.ext = null; ui.des = null; ui.pago = null;
       if (aviso) aviso = null;
     }
-    const mia = V.fase === 'juego' && V.offer && V.offer.to === V.yo;
+    const mia = V.fase === 'juego' && ((V.offer && V.offer.to === V.yo) || (V.pagoPendiente && V.pagoPendiente.seat === V.yo));
     if (mia && !ultimaMia && navigator.vibrate) { try { navigator.vibrate(90); } catch {} }
     ultimaMia = mia;
     const nuevos = eventosNuevos();
@@ -164,10 +166,11 @@
   function avatar(i, px, cls = '') {
     const s = V.seats[i];
     if (!s) return '';
-    const deciding = V.fase === 'juego' && V.offer && V.offer.to === i;
+    const deciding = V.fase === 'juego' && ((V.offer && V.offer.to === i) || (V.pagoPendiente && V.pagoPendiente.seat === i));
     const c = cls + (deciding ? ' decide' : '') + (!s.conectado ? ' off' : '');
     const ins = s.voz ? `<span class="insignia ${s.mudo ? 'mudo' : ''}">${s.mudo ? ICON.micOff : ICON.mic}</span>` : '';
-    return `<span class="av-wrap">${avatarCrudo(s.name, fotos[i], px, c, `data-vid="${esc(s.vid)}"`)}${ins}</span>`;
+    const anillo = V.reloj && V.reloj.seat === i ? '<span class="anillo" data-reloj></span>' : '';
+    return `<span class="av-wrap">${anillo}${avatarCrudo(s.name, fotos[i], px, c, `data-vid="${esc(s.vid)}"`)}${ins}</span>`;
   }
   const ancho = () => matchMedia('(min-width: 900px) and (min-height: 520px)').matches;
   const clamp = (a, x, b) => Math.max(a, Math.min(b, x));
@@ -333,10 +336,14 @@
       (i === V.dealer ? '<span class="etq">reparte</span>' : '') +
       (V.fase === 'cambio' ? `<span class="etq">${s.cambioListo ? 'listo' : 'eligiendo'}</span>` : '') +
       (!s.conectado ? '<span class="etq off">sin señal</span>' : '');
+    // Botón para obligar a este jugador si pasó la carta que está en la mesa
+    const puedeObligar = V.fase === 'juego' && V.offer && V.yo >= 0 && (V.offer.pasaron || []).includes(i) && !(ui.modo !== 'idle' && V.offer.to === V.yo);
+    const obligar = puedeObligar ? `<button class="chip rojo obligar-chip" data-act="obligar" data-seat="${i}" ${enviando ? 'disabled' : ''} aria-label="Obligar a ${esc(s.name)} a tomar la carta">Obligar</button>` : '';
     return `<div class="rival p-${pos}">
       <div class="cabeza" data-anchor="seat-${i}">
         <div class="fila-av">${avatar(i, tamAvatarRival())}<div class="abanico-dorsos" style="--n:${Math.max(1, n)}">${dorsos}<b>${s.cartas}</b></div></div>
         <div class="datos"><span class="etq-nombre">${esc(s.name)}</span>${saldoChip(s)}${etq}</div>
+        ${obligar}
       </div>
       <div class="juegos" data-anchor="melds-${i}">${s.melds.map((m) => juego(m, 'xs')).join('')}</div>
     </div>`;
@@ -365,18 +372,27 @@
       }
     }
 
+    const relojHtml = '<div class="reloj" data-reloj><i></i><span></span></div>';
+    if (V.fase === 'juego' && V.pagoPendiente) {
+      const pp = V.pagoPendiente;
+      textoMesa = pp.seat === yo ? `${nom(pp.por)} te obligó a tomar el ${R.cardName(pp.c)}` : `${nom(pp.por)} obligó a ${nom(pp.seat)} a tomar el ${R.cardName(pp.c)}`;
+      if (pp.seat === yo) {
+        manoSeleccionable = true;
+        const errP = ui.pago ? R.errorPago(misJuegos, V.mano, ui.pago) : null;
+        pista = `Te obligaron: paga con una carta de tu mano ${relojHtml}` + (errP ? `<br><span class="err">${esc(errP)}</span>` : '');
+        botones = `<button class="btn rojo" data-act="pagar-obligado" ${!ui.pago || errP || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button>`;
+      } else pista = `Esperando que ${nom(pp.seat)} pague`;
+    }
     if (V.fase === 'juego' && V.offer) {
       const o = V.offer;
       const mia = o.to === yo;
-      textoMesa = (o.src === 'mazo' ? 'Salió del mazo' : `Pago de ${nom(o.by)}`) + ' · ' + (mia ? 'te toca decidir' : 'decide ' + nom(o.to));
+      if (o.to < 0) textoMesa = `Nadie quiso el ${R.cardName(o.c)} · se descarta en un momento`;
+      else textoMesa = (o.src === 'mazo' ? 'Salió del mazo' : `Pago de ${nom(o.by)}`) + ' · ' + (mia ? 'te toca decidir' : 'decide ' + nom(o.to));
       if (mia) {
-        const puedeGanar = !!R.winArrangement(misJuegos, [...(V.mano || []), o.c]);
-        const sirve = R.canUse(misJuegos, V.mano || [], o.c);
         if (ui.modo === 'idle') {
-          botones = (puedeGanar ? `<button class="btn oro" data-act="ganar" ${enviando ? 'disabled' : ''}>¡Gano!</button>` : '') +
-            `<button class="btn" data-act="tomar" ${!sirve || enviando ? 'disabled' : ''}>Tomar</button>` +
+          botones = `<button class="btn" data-act="tomar" ${enviando ? 'disabled' : ''}>Tomar</button>` +
             `<button class="btn cielo" data-act="pasar" ${enviando ? 'disabled' : ''}>Pasar</button>`;
-          pista = puedeGanar ? '¡Con esta carta completas tus 10!' : sirve ? '¿Te sirve el ' + R.cardName(o.c) + '?' : 'Esta carta no te forma ningún juego';
+          pista = `¿Tomas el ${R.cardName(o.c)}? ${relojHtml}`;
         } else if (ui.modo === 'elegir') {
           manoSeleccionable = true;
           juegosToc = misJuegos.length > 0;
@@ -386,11 +402,14 @@
             : `Toca las cartas que forman juego con el ${R.cardName(o.c)}`;
           if (ui.des && !res.err) pista = `Desmochas el ${R.cardName(ui.des.c)}: el juego nuevo queda expuesto`;
           if ((ui.sel.length || ui.ext !== null || ui.des) && res.err) pista += `<br><span class="err">${esc(res.err)}</span>`;
+          pista += ' ' + relojHtml;
           botones = `<button class="btn" data-act="bajar" ${res.err || enviando ? 'disabled' : ''}>Bajar juego</button><button class="btn cielo" data-act="cancelar">Cancelar</button>`;
         } else if (ui.modo === 'pagar') {
           manoSeleccionable = true;
-          pista = 'Ahora paga: elige la carta que vas a soltar';
-          botones = `<button class="btn rojo" data-act="pagar" ${!ui.pago || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button><button class="btn cielo" data-act="atras">Atrás</button>`;
+          const tras = R.applyTake(misJuegos, V.mano, o.c, ui.sel, ui.ext, ui.des);
+          const errP = ui.pago && !tras.err ? R.errorPago(tras.melds, tras.hand, ui.pago) : null;
+          pista = `Ahora paga: elige la carta que vas a soltar ${relojHtml}` + (errP ? `<br><span class="err">${esc(errP)}</span>` : '');
+          botones = `<button class="btn rojo" data-act="pagar" ${!ui.pago || errP || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button><button class="btn cielo" data-act="atras">Atrás</button>`;
         }
       }
     }
@@ -432,7 +451,7 @@
     const manoHtml = manoVis.map((c, k) => {
       let sel = false;
       if (ui.modo === 'elegir' && ui.sel.includes(c)) sel = true;
-      if ((ui.modo === 'pagar' || V.fase === 'cambio') && ui.pago === c) sel = true;
+      if ((ui.modo === 'pagar' || V.fase === 'cambio' || (V.pagoPendiente && V.pagoPendiente.seat === V.yo)) && ui.pago === c) sel = true;
       if (V.fase === 'cambio' && V.miCambio === c) sel = true;
       const d = k - mid;
       const x = W / 2 + d * paso - cw / 2;
@@ -518,6 +537,19 @@
       : `<p style="color:var(--tenue);font-weight:700">Esperando que ${nom(V.anfitrion)} reparta otra…</p>`;
     return `<div class="velo"><div class="final">${html}</div></div>`;
   }
+
+  // ---------- cuenta regresiva ----------
+  setInterval(() => {
+    if (!V || !V.reloj) return;
+    const rest = Math.max(0, relojHasta - performance.now());
+    const p = V.reloj.total ? rest / V.reloj.total : 0;
+    document.querySelectorAll('[data-reloj]').forEach((el) => {
+      el.style.setProperty('--p', p.toFixed(3));
+      el.classList.toggle('urge', rest < 2000);
+      const sp = el.querySelector('span');
+      if (sp) sp.textContent = Math.ceil(rest / 1000);
+    });
+  }, 100);
 
   // ---------- animaciones ----------
   let evVisto = -1; // -1 = aún no inicializado
@@ -897,7 +929,7 @@
     },
     carta(el) {
       const c = el.dataset.c;
-      if (V.fase === 'cambio' || ui.modo === 'pagar') ui.pago = ui.pago === c ? null : c;
+      if (V.fase === 'cambio' || ui.modo === 'pagar' || (V.pagoPendiente && V.pagoPendiente.seat === V.yo)) ui.pago = ui.pago === c ? null : c;
       else if (ui.modo === 'elegir') ui.sel = ui.sel.includes(c) ? ui.sel.filter((x) => x !== c) : [...ui.sel, c];
       render();
     },
@@ -909,10 +941,11 @@
       render();
     },
     'pasar-cambio'() { if (ui.pago) accion({ t: 'cambio', c: ui.pago }); },
-    tomar() { ui.modo = 'elegir'; ui.sel = []; ui.ext = null; ui.des = null; render(); },
+    tomar() { ui.modo = 'elegir'; ui.sel = []; ui.ext = null; ui.des = null; render(); post('accion', { code: mesa, a: { t: 'reclamar' } }); },
+    obligar(el) { accion({ t: 'obligar', seat: Number(el.dataset.seat) }); },
+    'pagar-obligado'() { if (ui.pago) accion({ t: 'pagar', c: ui.pago }); },
     cancelar() { ui.modo = 'idle'; ui.sel = []; ui.ext = null; ui.des = null; render(); },
     pasar() { accion({ t: 'pasar' }); },
-    ganar() { accion({ t: 'ganar' }); },
     bajar() {
       const res = R.applyTake(V.seats[V.yo].melds, V.mano, V.offer.c, ui.sel, ui.ext, ui.des);
       if (res.err) return;

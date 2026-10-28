@@ -3,7 +3,11 @@ const crypto = require('crypto');
 const R = require('./public/rules.js');
 
 const MAX = 4;
-const AUSENTE_MS = 25000; // tras este tiempo sin conexión, el jugador pasa automáticamente
+const AUSENTE_MS = 25000; // en el cambio: tras este tiempo sin conexión se elige su carta al azar
+const TIEMPO_DECIDIR = Number(process.env.DIEZ_T_DECIDIR) || 5000; // segundos para decidir si tomas la carta
+const TIEMPO_ARMAR = Number(process.env.DIEZ_T_ARMAR) || 25000; // después de tocar "Tomar": tiempo para escoger cartas y pagar
+const TIEMPO_PAGO = Number(process.env.DIEZ_T_PAGO) || 20000; // para pagar cuando te obligaron a tomar
+const TIEMPO_OBLIGAR = Number(process.env.DIEZ_T_OBLIGAR) || 3000; // cuando nadie quiere la carta, tiempo para obligar antes de descartarla
 
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
@@ -148,6 +152,8 @@ class Mesa {
     this.recibidas = {};
     this.win = null;
     this.offer = null;
+    this.reloj = null;
+    this.pagoPendiente = null;
     for (const s of this.seats) {
       s.hand = this.deck.splice(0, 9);
       s.melds = [];
@@ -163,42 +169,92 @@ class Mesa {
     return null;
   }
 
+  // ---------- reloj de decisión ----------
+  ponerReloj(tipo, seat, ms) {
+    this.reloj = { tipo, seat, hasta: Date.now() + ms, total: ms };
+  }
+
+  ofrecer(c, src, by, to) {
+    this.offer = { c, src, by, to, start: to, pasaron: [] };
+    this.pagoPendiente = null;
+    this.ponerReloj('decidir', to, TIEMPO_DECIDIR);
+  }
+
   flip() {
     if (!this.deck.length) {
       this.fase = 'fin';
       this.win = null;
       this.offer = null;
+      this.reloj = null;
       this.apuesta++;
       this.addLog(`Se acabó el mazo sin ganador: la próxima va ${nombreApuesta(this.apuesta)}`);
       this.ev('empate');
       return;
     }
     const c = this.deck.pop();
-    this.offer = { c, src: 'mazo', by: -1, to: this.turn, start: this.turn };
+    this.ofrecer(c, 'mazo', -1, this.turn);
     this.ev('flip', { c, seat: this.turn });
   }
 
-  advance() {
-    const n = this.seats.length;
+  // El jugador que decide pasa la carta (por decisión o porque se le acabó el tiempo)
+  pasar(seat, motivo) {
     const o = this.offer;
+    const nm = this.seats[seat].name;
+    this.addLog(motivo === 'tiempo' ? `A ${nm} se le acabó el tiempo con el ${R.cardName(o.c)}` : `${nm} pasó el ${R.cardName(o.c)}`);
+    this.ev('pasa', { seat, c: o.c });
+    if (!o.pasaron.includes(seat)) o.pasaron.push(seat);
+    const n = this.seats.length;
     let next = (o.to + 1) % n;
     if (o.src === 'pago' && next === o.by) next = (next + 1) % n;
     if (next === o.start) {
-      this.dead.push(o.c);
-      this.addLog(`Nadie quiso el ${R.cardName(o.c)}`);
-      this.ev('muerta', { c: o.c });
-      if (o.src === 'mazo') this.turn = (this.turn + 1) % n;
-      this.flip();
+      // Nadie la quiso: unos segundos para que alguien obligue, luego se descarta
+      o.to = -1;
+      this.ponerReloj('muerta', -1, TIEMPO_OBLIGAR);
     } else {
       o.to = next;
+      this.ponerReloj('decidir', next, TIEMPO_DECIDIR);
     }
+  }
+
+  morir() {
+    const o = this.offer;
+    const n = this.seats.length;
+    this.dead.push(o.c);
+    this.addLog(`Nadie quiso el ${R.cardName(o.c)}`);
+    this.ev('muerta', { c: o.c });
+    if (o.src === 'mazo') this.turn = (this.turn + 1) % n;
+    this.flip();
+  }
+
+  pagar(seat, c) {
+    const s = this.seats[seat];
+    s.hand.splice(s.hand.indexOf(c), 1);
+    this.ev('pago', { seat, c });
+    const next = (seat + 1) % this.seats.length;
+    this.turn = next;
+    this.ofrecer(c, 'pago', seat, next);
+  }
+
+  // Revisa el reloj; devuelve true si algo cambió
+  tick() {
+    const r = this.reloj;
+    if (this.fase !== 'juego' || !r || Date.now() < r.hasta) return false;
+    if (r.tipo === 'muerta') this.morir();
+    else if (r.tipo === 'pago' && this.pagoPendiente) {
+      const s = this.seats[this.pagoPendiente.seat];
+      const ok = R.cartasPagables(s.melds, s.hand);
+      const c = ok[crypto.randomInt(ok.length)];
+      this.addLog(`${s.name} no pagó a tiempo: se pagó con el ${R.cardName(c)}`);
+      this.pagar(this.pagoPendiente.seat, c);
+    } else if (this.offer && this.offer.to >= 0) this.pasar(this.offer.to, 'tiempo');
+    else return false;
+    return true;
   }
 
   accion(pid, a) {
     const seat = this.seatOf(pid);
     if (seat < 0) return 'No estás sentado en esta mesa';
     const s = this.seats[seat];
-    const n = this.seats.length;
     a = a || {};
 
     if (a.t === 'repartir') return this.repartir(pid);
@@ -218,20 +274,59 @@ class Mesa {
       return null;
     }
 
-    if (this.fase !== 'juego' || !this.offer) return 'No es momento de jugar';
-    const o = this.offer;
-    if (o.to !== seat) return 'No es tu turno de decidir';
+    if (this.fase !== 'juego') return 'No es momento de jugar';
 
-    if (a.t === 'pasar') {
-      this.addLog(`${s.name} pasó el ${R.cardName(o.c)}`);
-      this.ev('pasa', { seat, c: o.c });
-      this.advance();
+    // Pago después de que te obligaron a tomar
+    if (a.t === 'pagar') {
+      if (!this.pagoPendiente || this.pagoPendiente.seat !== seat) return 'No tienes un pago pendiente';
+      const errPago = R.errorPago(s.melds, s.hand, a.c);
+      if (errPago) return errPago;
+      this.addLog(`${s.name} pagó con ${R.cardName(a.c)}`);
+      this.pagar(seat, a.c);
       return null;
     }
+
+    if (!this.offer) return 'Espera a que se pague la carta';
+    const o = this.offer;
+
+    // Obligar a quien pasó una carta que le servía en sus juegos expuestos
+    if (a.t === 'obligar') {
+      const obj = Number(a.seat);
+      const x = this.seats[obj];
+      if (!x || obj === seat) return 'Elige a otro jugador';
+      if (!o.pasaron.includes(obj)) return `${x.name} no ha pasado esta carta`;
+      if (!x.hand.length) return `${x.name} ya tiene todo expuesto: no puede pagar`;
+      const i = x.melds.findIndex((m) => R.isMeld([...m, o.c]));
+      if (i < 0) return `El ${R.cardName(o.c)} no le sirve a ${x.name} en sus juegos de la mesa`;
+      x.melds[i] = R.sortMeld([...x.melds[i], o.c]);
+      this.addLog(`${s.name} obligó a ${x.name} a tomar el ${R.cardName(o.c)}`);
+      this.ev('toma', { seat: obj, c: o.c, obligado: true });
+      this.offer = null;
+      this.pagoPendiente = { seat: obj, c: o.c, por: seat };
+      this.ponerReloj('pago', obj, TIEMPO_PAGO);
+      return null;
+    }
+
+    if (o.to !== seat) return 'No es tu turno de decidir';
+
+    if (a.t === 'reclamar') {
+      if (this.reloj && this.reloj.tipo === 'decidir' && this.reloj.seat === seat) this.ponerReloj('armar', seat, TIEMPO_ARMAR);
+      return null;
+    }
+
+    if (a.t === 'pasar') {
+      this.pasar(seat);
+      return null;
+    }
+
+    // Con las 9 cartas expuestas, la carta 10 tiene que salir del mazo
+    const todoExpuesto = s.hand.length === 0;
+    const reglaDiez = 'Con todo expuesto, tu carta 10 tiene que salir del mazo, no del pago de otro jugador';
 
     if (a.t === 'ganar') {
       const arr = R.winArrangement(s.melds, [...s.hand, o.c]);
       if (!arr) return 'Todavía no puedes ganar con esa carta';
+      if (todoExpuesto && o.src === 'pago') return reglaDiez;
       this.ganar(seat, arr, o.c);
       return null;
     }
@@ -241,21 +336,20 @@ class Mesa {
       if (res.err) return res.err;
       const arr = R.winArrangement(res.melds, res.hand);
       if (arr) {
+        if (todoExpuesto && o.src === 'pago') return reglaDiez;
         s.melds = res.melds;
         s.hand = res.hand;
         this.ganar(seat, arr, o.c);
         return null;
       }
       if (!res.hand.includes(a.pay)) return 'Elige con qué carta pagas';
-      res.hand.splice(res.hand.indexOf(a.pay), 1);
+      const errPago = R.errorPago(res.melds, res.hand, a.pay);
+      if (errPago) return errPago;
       s.melds = res.melds;
       s.hand = res.hand;
       this.addLog(`${s.name} tomó el ${R.cardName(o.c)}` + (res.desmoche ? ` desmochando el ${R.cardName(a.des.c)}` : '') + ` y pagó con ${R.cardName(a.pay)}`);
       this.ev('toma', { seat, c: o.c, des: res.desmoche ? a.des.c : undefined });
-      this.ev('pago', { seat, c: a.pay });
-      const next = (seat + 1) % n;
-      this.turn = next;
-      this.offer = { c: a.pay, src: 'pago', by: seat, to: next, start: next };
+      this.pagar(seat, a.pay);
       return null;
     }
     return 'Acción desconocida';
@@ -284,6 +378,8 @@ class Mesa {
     this.fase = 'fin';
     this.win = { seat, melds: arr, carta: c, apuesta: this.apuesta, premio };
     this.offer = null;
+    this.reloj = null;
+    this.pagoPendiente = null;
     this.addLog(`🏆 ¡${this.seats[seat].name} ganó con el ${R.cardName(c)}!` + (premio ? ` Se lleva ${lps(premio)}` : this.apuesta > 1 ? ` (iba ${nombreApuesta(this.apuesta)})` : ''));
     this.ev('gana', { seat, c, premio });
     this.apuesta = 1;
@@ -301,15 +397,6 @@ class Mesa {
           this.accion(x.pid, { t: 'cambio', c: x.hand[crypto.randomInt(x.hand.length)] });
           cambio = true;
         }
-    }
-    if (this.fase === 'juego' && this.offer) {
-      const x = this.seats[this.offer.to];
-      if (x && ido(x)) {
-        this.addLog(`${x.name} no está conectado: pasa automáticamente`);
-        this.ev('pasa', { seat: this.offer.to, c: this.offer.c });
-        this.advance();
-        cambio = true;
-      }
     }
     return cambio;
   }
@@ -332,6 +419,8 @@ class Mesa {
       descarte: this.dead.length,
       muertas: this.dead.slice(-3),
       offer: this.offer,
+      pagoPendiente: this.pagoPendiente,
+      reloj: this.reloj && this.fase === 'juego' ? { tipo: this.reloj.tipo, seat: this.reloj.seat, restante: Math.max(0, this.reloj.hasta - Date.now()), total: this.reloj.total } : null,
       log: this.log,
       win: this.win,
       config: this.config,

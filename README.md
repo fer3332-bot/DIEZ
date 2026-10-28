@@ -64,6 +64,14 @@ Sin estas variables el juego funciona igual; solo el audio puede fallar en algun
 - **Micrófono abierto:** botón "Audio" arriba. Se puede silenciar. Un aro verde marca a quien está hablando.
 - **Apuestas en lempiras de juego:** quien crea la mesa las activa antes de repartir: apuesta por partida y saldo inicial. Todos ponen la apuesta en el pozo al repartir; si nadie gana, el pozo se queda y "va doble". Quien gana se lleva el pozo. Los saldos pueden quedar en negativo.
 
+## Tiempos del juego (opcional)
+
+Los tiempos se pueden cambiar en Render → Environment, en milisegundos:
+- `DIEZ_T_DECIDIR` (5000): segundos para decidir si tomas la carta.
+- `DIEZ_T_ARMAR` (25000): después de tocar "Tomar", tiempo para escoger cartas y pagar.
+- `DIEZ_T_PAGO` (20000): para pagar cuando te obligan.
+- `DIEZ_T_OBLIGAR` (3000): cuando nadie quiere la carta, tiempo para obligar antes de descartarla.
+
 ## Bueno saber
 
 - En el plan gratis de Render, el servidor se duerme tras 15 minutos sin uso. La primera vez que alguien abre la app después de eso puede tardar hasta un minuto en cargar. Mientras haya gente en una mesa, la app lo mantiene despierto.
