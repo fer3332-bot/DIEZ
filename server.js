@@ -43,7 +43,7 @@ function leerBody(req) {
     let data = '';
     req.on('data', (ch) => {
       data += ch;
-      if (data.length > 10000) req.destroy();
+      if (data.length > 120000) req.destroy();
     });
     req.on('end', () => {
       try {
@@ -71,14 +71,36 @@ function difundir(mesa) {
   actualizarConexion(mesa);
   const set = clientes.get(mesa.code);
   if (!set) return;
-  for (const cli of set) enviar(cli, mesa);
+  const firma = mesa.fotosFirma();
+  const fotosCambiaron = firma !== mesa._firmaFotos;
+  mesa._firmaFotos = firma;
+  for (const cli of set) {
+    if (fotosCambiaron) enviarFotos(cli, mesa);
+    enviar(cli, mesa);
+  }
 }
 
-function enviar(cli, mesa) {
+function escribir(cli, evento, datos) {
   try {
-    cli.res.write(`event: estado\ndata: ${JSON.stringify(mesa.vista(cli.pid))}\n\n`);
+    cli.res.write(`event: ${evento}\ndata: ${JSON.stringify(datos)}\n\n`);
   } catch {}
 }
+const enviar = (cli, mesa) => escribir(cli, 'estado', mesa.vista(cli.pid));
+const enviarFotos = (cli, mesa) => escribir(cli, 'fotos', mesa.fotosVista());
+
+// Servidores para conectar el audio. STUN público + TURN opcional por variables de entorno.
+function iceServers() {
+  const l = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  if (process.env.TURN_URL) {
+    l.push({
+      urls: process.env.TURN_URL.split(',').map((s) => s.trim()),
+      username: process.env.TURN_USER || '',
+      credential: process.env.TURN_PASS || '',
+    });
+  }
+  return l;
+}
+const FOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
 function servirEstatico(req, res) {
   let url = decodeURIComponent(req.url.split('?')[0]);
@@ -120,6 +142,7 @@ const server = http.createServer(async (req, res) => {
     const cli = { pid, res };
     if (!clientes.has(code)) clientes.set(code, new Set());
     clientes.get(code).add(cli);
+    enviarFotos(cli, mesa);
     difundir(mesa);
     const latido = setInterval(() => {
       try { res.write(': ping\n\n'); } catch {}
@@ -159,6 +182,24 @@ const server = http.createServer(async (req, res) => {
       difundir(mesa);
       return json(res, 200, { ok: true });
     }
+    if (u.pathname === '/api/foto') {
+      if (mesa.seatOf(pid) < 0) return json(res, 200, { ok: true });
+      const f = b.foto ? String(b.foto) : null;
+      if (f && (f.length > 90000 || !FOTO_RE.test(f))) return json(res, 400, { error: 'Foto inválida o muy grande' });
+      mesa.setFoto(pid, f);
+      difundir(mesa);
+      return json(res, 200, { ok: true });
+    }
+    if (u.pathname === '/api/senal') {
+      // Señalización WebRTC para el audio: se reenvía a quien tenga ese id de voz
+      const de = mesa.vidOf(pid);
+      const para = String(b.to || '');
+      const datos = JSON.stringify(b.data || null);
+      if (!de || !para || datos.length > 20000) return json(res, 400, { error: 'Señal inválida' });
+      const destino = mesa.seats.find((s) => s.vid === para);
+      if (destino) for (const cli of clientes.get(code) || []) if (cli.pid === destino.pid) escribir(cli, 'senal', { from: de, data: b.data });
+      return json(res, 200, { ok: true });
+    }
     if (u.pathname === '/api/accion') {
       const err = mesa.accion(pid, b.a);
       if (!err) difundir(mesa);
@@ -167,6 +208,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: 'Ruta desconocida' });
   }
 
+  if (req.method === 'GET' && u.pathname === '/api/ice') return json(res, 200, { iceServers: iceServers() });
   if (req.method === 'GET' && u.pathname === '/salud') return json(res, 200, { ok: true, mesas: mesas.size });
 
   if (req.method === 'GET') return servirEstatico(req, res);

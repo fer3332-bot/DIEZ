@@ -3,9 +3,10 @@
   const R = window.Reglas;
   const $ = (s) => document.querySelector(s);
   const app = $('#app');
+  const reducido = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- almacenamiento local ----------
-  const guardar = (k, v) => { try { v === undefined ? localStorage.removeItem('diez_' + k) : localStorage.setItem('diez_' + k, JSON.stringify(v)); } catch {} };
+  const guardar = (k, v) => { try { v === undefined || v === null ? localStorage.removeItem('diez_' + k) : localStorage.setItem('diez_' + k, JSON.stringify(v)); } catch {} };
   const leer = (k) => { try { const v = localStorage.getItem('diez_' + k); return v ? JSON.parse(v) : null; } catch { return null; } };
   function idAleatorio(n) {
     const a = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -17,16 +18,28 @@
 
   // ---------- estado ----------
   let nombre = leer('nombre') || '';
-  let mesa = null; // código
-  let V = null; // vista del servidor
-  let es = null; // EventSource
+  let miFoto = leer('foto') || null;
+  let mesa = null;
+  let V = null;
+  let fotos = [];
+  let es = null;
   let conectado = false;
-  let aviso = null; // {txt, error}
+  let aviso = null;
   let enviando = false;
   let armarSalir = false;
   const ui = { modo: 'idle', sel: [], ext: null, pago: null, orden: leer('orden') || 'palo', clave: '' };
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const lps = (n) => (n < 0 ? '-' : '') + 'L ' + Math.abs(Math.round(n)).toLocaleString('en-US');
+  const apuestaTxt = (n) => ['', '', 'Va doble', 'Va triple', 'Va cuádruple', 'Va quíntuple'][n] || `Va x${n}`;
+
+  const ICON = {
+    mic: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg>',
+    micOff: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-2a5 5 0 0 1-.6 2.4l1.5 1.5A7 7 0 0 0 19 11zM15 11V5a3 3 0 0 0-5.9-.8L15 10.1zM4.3 3 3 4.3l6 6V11a3 3 0 0 0 4.4 2.6l1.6 1.6A5 5 0 0 1 7 11H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 3.5-1.4l3.2 3.2 1.3-1.3z"/></svg>',
+    cerrar: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>',
+    salir: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 3H4v18h6v-2H6V5h4zm5.6 4.4L14.2 8.8l2.2 2.2H9v2h7.4l-2.2 2.2 1.4 1.4L20.2 12z"/></svg>',
+    compartir: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 16a3 3 0 0 0-2.4 1.2l-6.7-3.4a3 3 0 0 0 0-1.6l6.7-3.4A3 3 0 1 0 15 7l-6.7 3.4a3 3 0 1 0 0 3.2L15 17a3 3 0 1 0 3-1z"/></svg>',
+  };
 
   // ---------- red ----------
   async function post(ruta, body) {
@@ -48,14 +61,20 @@
     es = new EventSource('/api/stream?mesa=' + encodeURIComponent(code) + '&pid=' + pid);
     es.addEventListener('estado', (e) => {
       conectado = true;
-      try { V = JSON.parse(e.data); } catch { return; }
-      alCambiarVista();
+      let nv;
+      try { nv = JSON.parse(e.data); } catch { return; }
+      alCambiarVista(nv);
     });
-    es.onopen = () => { conectado = true; render(); };
+    es.addEventListener('fotos', (e) => { try { fotos = JSON.parse(e.data) || []; } catch {} render(); });
+    es.addEventListener('senal', (e) => { try { Voz.recibir(JSON.parse(e.data)); } catch {} });
+    es.onopen = () => {
+      conectado = true;
+      if (miFoto) post('foto', { code, foto: miFoto });
+      render();
+    };
     es.onerror = async () => {
       conectado = false;
       render();
-      // ¿La mesa todavía existe? (el servidor pudo reiniciarse)
       const r = await post('unirse', { code, name: nombre });
       if (r.error && /no existe/i.test(r.error)) {
         salirLocal();
@@ -66,17 +85,18 @@
   }
 
   function salirLocal() {
+    Voz.salir(true);
     if (es) es.close();
-    es = null; mesa = null; V = null; conectado = false;
+    es = null; mesa = null; V = null; fotos = []; conectado = false; evVisto = -1;
     guardar('mesa', undefined);
     history.replaceState(null, '', '/');
   }
 
-  async function accion(a) {
-    if (enviando) return;
-    enviando = true; render();
+  async function accion(a, silencioso) {
+    if (enviando && !silencioso) return;
+    if (!silencioso) { enviando = true; render(); }
     const r = await post('accion', { code: mesa, a });
-    enviando = false;
+    if (!silencioso) enviando = false;
     if (r.error) aviso = { txt: r.error, error: true };
     render();
     return r;
@@ -84,36 +104,102 @@
 
   // ---------- cambios de vista ----------
   let ultimaMia = false;
-  function alCambiarVista() {
+  function alCambiarVista(nv) {
+    V = nv;
+    window.__V = nv;
     const clave = V.fase + '|' + (V.offer ? [V.offer.c, V.offer.to, V.offer.src, V.offer.by].join(',') : '') + '|' + V.partidas;
     if (clave !== ui.clave) {
       ui.clave = clave; ui.modo = 'idle'; ui.sel = []; ui.ext = null; ui.pago = null;
-      if (aviso && aviso.error) aviso = null;
+      if (aviso) aviso = null;
     }
     const mia = V.fase === 'juego' && V.offer && V.offer.to === V.yo;
-    if (mia && !ultimaMia && navigator.vibrate) { try { navigator.vibrate(120); } catch {} }
+    if (mia && !ultimaMia && navigator.vibrate) { try { navigator.vibrate(90); } catch {} }
     ultimaMia = mia;
+    const nuevos = eventosNuevos();
     render();
+    if (nuevos.length) animar(nuevos);
+    Voz.sync();
   }
 
   // ---------- piezas de interfaz ----------
-  function carta(c, cls = '', attrs = '') {
+  const PIPS = {
+    2: [[50, 20], [50, 80]],
+    3: [[50, 20], [50, 50], [50, 80]],
+    4: [[34, 20], [66, 20], [34, 80], [66, 80]],
+    5: [[34, 20], [66, 20], [50, 50], [34, 80], [66, 80]],
+    6: [[34, 20], [66, 20], [34, 50], [66, 50], [34, 80], [66, 80]],
+    7: [[34, 20], [66, 20], [50, 35], [34, 50], [66, 50], [34, 80], [66, 80]],
+    8: [[34, 20], [66, 20], [50, 35], [34, 50], [66, 50], [50, 65], [34, 80], [66, 80]],
+    9: [[34, 20], [66, 20], [34, 40], [66, 40], [50, 50], [34, 60], [66, 60], [34, 80], [66, 80]],
+    10: [[34, 20], [66, 20], [50, 30], [34, 40], [66, 40], [34, 60], [66, 60], [50, 70], [34, 80], [66, 80]],
+  };
+  function carta(c, tam = 'md', cls = '', attrs = '') {
     if (!R.CODE_RE.test(c)) return '';
     const roja = c[1] === 'h' || c[1] === 'd';
-    return `<span class="carta ${roja ? 'roja' : ''} ${cls}" ${attrs} aria-label="${R.cardName(c)}"><span class="r">${R.rankLabel(c)}</span><span class="p1">${R.SYM[c[1]]}</span><span class="p">${R.SYM[c[1]]}</span></span>`;
+    const s = R.SYM[c[1]];
+    const r = R.rv(c);
+    const lab = R.rankLabel(c);
+    let centro = '';
+    if (r === 1) centro = `<span class="as">${s}</span>`;
+    else if (r >= 11) centro = `<span class="fig"><b>${lab}</b><i class="s1">${s}</i><i class="s2">${s}</i></span>`;
+    else centro = PIPS[r].map(([x, y]) => `<span class="pip ${y > 52 ? 'inv' : ''}" style="left:${x}%;top:${y}%">${s}</span>`).join('');
+    return `<span class="carta ${tam} ${roja ? 'roja' : ''} ${cls}" ${attrs} aria-label="${R.cardName(c)}"><span class="ix a"><b>${lab}</b><i>${s}</i></span><span class="ix b"><b>${lab}</b><i>${s}</i></span>${centro}<span class="grande">${s}</span></span>`;
   }
-  const dorso = (cls = '') => `<span class="carta dorso ${cls}" aria-hidden="true"></span>`;
-  const juego = (m, cls = 'mini', extra = '') => `<span class="juego ${extra}">${m.map((c) => carta(c, cls)).join('')}</span>`;
-  const nom = (i) => (V.seats[i] ? esc(V.seats[i].name) : '¿?');
-  const apuestaTxt = (n) => ['', '', 'Va doble', 'Va triple', 'Va cuádruple', 'Va quíntuple'][n] || `Va x${n}`;
+  const dorso = (tam = 'md', cls = '', attrs = '') => `<span class="carta dorso ${tam} ${cls}" ${attrs} aria-hidden="true"></span>`;
+  const juego = (m, tam = 'xs', extra = '', attrs = '') => `<span class="juego ${extra}" ${attrs}>${m.map((c) => carta(c, tam)).join('')}</span>`;
+  const nom = (i) => (V && V.seats[i] ? esc(V.seats[i].name) : '¿?');
 
+  function colorDe(txt) {
+    let h = 0;
+    for (const ch of String(txt)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    return `hsl(${h} 55% 38%)`;
+  }
+  const FOTO_OK = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+  function avatarCrudo(nombreTxt, foto, px, cls = '', attrs = '') {
+    const ini = esc(String(nombreTxt || '?').trim().slice(0, 1).toUpperCase() || '?');
+    const dentro = foto && FOTO_OK.test(foto) ? `<img src="${foto}" alt="">` : ini;
+    return `<span class="avatar ${cls}" ${attrs} style="--a:${px}px;background:${colorDe(nombreTxt)}">${dentro}</span>`;
+  }
+  function avatar(i, px, cls = '') {
+    const s = V.seats[i];
+    if (!s) return '';
+    const deciding = V.fase === 'juego' && V.offer && V.offer.to === i;
+    const c = cls + (deciding ? ' decide' : '') + (!s.conectado ? ' off' : '');
+    const ins = s.voz ? `<span class="insignia ${s.mudo ? 'mudo' : ''}">${s.mudo ? ICON.micOff : ICON.mic}</span>` : '';
+    return `<span class="av-wrap">${avatarCrudo(s.name, fotos[i], px, c, `data-vid="${esc(s.vid)}"`)}${ins}</span>`;
+  }
+  const saldoChip = (s) => (V.config && V.config.apuestas ? `<span class="saldo ${s.saldo < 0 ? 'neg' : ''}">${lps(s.saldo)}</span>` : '');
+
+  // ---------- render (conserva lo que el usuario está escribiendo) ----------
+  let avisoTimer = null, avisoVisto = null;
   function render() {
+    if (aviso && !aviso.error && aviso !== avisoVisto) {
+      avisoVisto = aviso;
+      clearTimeout(avisoTimer);
+      const este = aviso;
+      avisoTimer = setTimeout(() => { if (aviso === este) { aviso = null; render(); } }, 3500);
+    }
     try {
+      const act = document.activeElement;
+      const idAct = act && act.id && app.contains(act) ? act.id : null;
+      let selAct = null;
+      try { selAct = idAct ? act.selectionStart : null; } catch {}
+      const vals = {};
+      app.querySelectorAll('input[id]').forEach((i) => { vals[i.id] = i.type === 'checkbox' ? i.checked : i.value; });
       app.innerHTML = mesa ? vistaMesa() : vistaInicio();
+      for (const k in vals) {
+        const el = document.getElementById(k);
+        if (el && app.contains(el)) { if (el.type === 'checkbox') el.checked = vals[k]; else el.value = vals[k]; }
+      }
+      if (idAct) {
+        const el = document.getElementById(idAct);
+        if (el) { el.focus({ preventScroll: true }); try { if (selAct !== null) el.setSelectionRange(selAct, selAct); } catch {} }
+      }
       const inp = $('#nombre');
-      if (inp) inp.addEventListener('input', () => { nombre = inp.value; guardar('nombre', nombre); });
+      if (inp) inp.oninput = () => { nombre = inp.value; guardar('nombre', nombre); };
       const cod = $('#codigo');
-      if (cod) cod.addEventListener('keydown', (e) => { if (e.key === 'Enter') acciones.unirse(); });
+      if (cod) cod.onkeydown = (e) => { if (e.key === 'Enter') acciones.unirse(); };
+      if (ocultarOferta) { const o = $('[data-anchor="offer"] .carta'); if (o) o.classList.add('oculta'); }
     } catch (e) {
       console.error(e);
     }
@@ -121,28 +207,33 @@
 
   function vistaInicio() {
     const qs = new URLSearchParams(location.search).get('mesa') || '';
-    const abanico = ['As', 'Kh', 'Qd', 'Jc', 'Ts'].map((c, i) => carta(c, '', `style="transform: rotate(${(i - 2) * 9}deg) translateY(${Math.abs(i - 2) * 6}px)"`)).join('');
+    const abanico = ['As', 'Kh', 'Qd', 'Jc', 'Ts']
+      .map((c, i) => carta(c, '', '', `style="margin-left:-31px;transform:rotate(${(i - 2) * 11}deg)"`))
+      .join('');
     return `
       <section class="portada">
-        <div class="abanico" aria-hidden="true">${abanico}</div>
+        <div class="abanico-portada" aria-hidden="true">${abanico}</div>
         <h1>Diez</h1>
         <p>Juego de cartas para 2 a 4 amigos, cada quien desde su celular.</p>
       </section>
-      <div class="bloque">
-        <label for="nombre">Tu nombre</label>
-        <input id="nombre" maxlength="14" autocomplete="nickname" placeholder="Ej. Fernando" value="${esc(nombre)}">
+      <div class="perfil">
+        <span data-act="foto" role="button" tabindex="0" aria-label="Cambiar tu foto">${avatarCrudo(nombre || '?', miFoto, 72)}</span>
+        <div style="flex:1">
+          <input id="nombre" maxlength="14" autocomplete="nickname" placeholder="Tu nombre" aria-label="Tu nombre" value="${esc(nombre)}">
+          <span class="cambiar" data-act="foto" role="button" tabindex="0">${miFoto ? 'Cambiar foto' : 'Toca el círculo para poner tu foto'}</span>
+        </div>
       </div>
-      <div class="bloque">
-        <button class="principal ancho" data-act="crear">Crear mesa nueva</button>
+      <div class="home-cuerpo">
+        <div style="margin-top:22px"><button class="btn ancho" data-act="crear">Crear mesa nueva</button></div>
+        <div class="separador">o entra con el código que te mandaron</div>
+        <div class="fila">
+          <input id="codigo" maxlength="4" autocapitalize="characters" autocomplete="off" placeholder="CÓDIGO" aria-label="Código de la mesa" value="${esc(qs.toUpperCase())}">
+          <button class="btn cielo" data-act="unirse">Entrar</button>
+        </div>
+        ${aviso ? `<div class="aviso ${aviso.error ? 'error' : ''}" style="margin:14px 0 0">${esc(aviso.txt)}</div>` : ''}
+        <div style="text-align:center;margin-top:14px"><button class="texto" data-act="reglas">Ver las reglas</button></div>
+        ${instalarTxt()}
       </div>
-      <div class="separador">o entra con el código que te mandaron</div>
-      <div class="fila">
-        <input id="codigo" maxlength="4" autocapitalize="characters" autocomplete="off" placeholder="Código" value="${esc(qs.toUpperCase())}" style="text-transform:uppercase;letter-spacing:4px;font-weight:700">
-        <button data-act="unirse">Entrar</button>
-      </div>
-      ${aviso ? `<div class="aviso ${aviso.error ? 'error' : ''}">${esc(aviso.txt)}</div>` : ''}
-      <div class="bloque" style="text-align:center"><button class="texto" data-act="reglas">Ver las reglas</button></div>
-      ${instalarTxt()}
     `;
   }
 
@@ -150,69 +241,107 @@
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     if (standalone) return '';
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    if (deferredPrompt) return `<div class="instalar"><button class="chico" data-act="instalar">Instalar la app en este teléfono</button></div>`;
-    return `<p class="instalar">${ios ? 'Para instalarla en iPhone: en Safari toca Compartir y luego "Agregar a inicio".' : 'Para instalarla: abre el menú del navegador y toca "Instalar app" o "Agregar a pantalla principal".'}</p>`;
+    if (deferredPrompt) return `<div class="instalar"><button class="btn menta chico" data-act="instalar">Instalar la app en este teléfono</button></div>`;
+    return `<p class="instalar">${ios ? 'Para instalarla en iPhone: en Safari toca Compartir y luego "Agregar a inicio".' : 'Para instalarla: abre el menú del navegador y toca "Instalar app".'}</p>`;
   }
 
-  function encabezado() {
-    return `<div class="top">
-      <span class="codigo">${esc(mesa)}</span>
-      <button class="chico" data-act="compartir">Invitar</button>
+  function barra() {
+    const enMesa = V && V.yo >= 0;
+    let mic = '';
+    if (enMesa) {
+      if (!Voz.on) mic = `<button class="chip" data-act="voz" aria-label="Entrar al audio de la mesa">${ICON.micOff} Audio</button>`;
+      else mic = `<button class="chip ${Voz.mudo ? 'mudo' : 'activo'}" data-act="mudo" aria-label="${Voz.mudo ? 'Activar micrófono' : 'Silenciar micrófono'}">${Voz.mudo ? ICON.micOff + ' Silencio' : ICON.mic + ' Mic'}</button><button class="chip" data-act="voz-salir" aria-label="Salir del audio">${ICON.cerrar}</button>`;
+    }
+    return `<div class="barra">
+      <span class="chip codigo">${esc(mesa)}</span>
+      <button class="chip" data-act="compartir">${ICON.compartir} Invitar</button>
       <span class="esp"></span>
-      ${!conectado ? '<span class="estado-red">Reconectando…</span>' : ''}
-      <button class="chico" data-act="reglas">Reglas</button>
-      <button class="chico" data-act="salir">${armarSalir ? '¿Seguro?' : 'Salir'}</button>
+      ${!conectado ? '<span class="chip mudo" style="cursor:default">Reconectando…</span>' : ''}
+      ${mic}
+      <button class="chip" data-act="reglas" aria-label="Reglas">?</button>
+      <button class="chip ${armarSalir ? 'mudo' : ''}" data-act="salir" aria-label="Salir de la mesa">${armarSalir ? '¿Salir?' : ICON.salir}</button>
     </div>`;
   }
 
   function vistaMesa() {
-    if (!V) return encabezado() + `<div class="sala">Conectando con la mesa…</div>`;
+    if (!V) return barra() + `<div class="sala"><p class="sub">Conectando con la mesa…</p></div>`;
     const avisoHtml = aviso ? `<div class="aviso ${aviso.error ? 'error' : ''}">${esc(aviso.txt)}</div>` : '';
-    if (V.fase === 'espera') return encabezado() + vistaEspera() + avisoHtml;
-    return encabezado() + vistaJuego() + avisoHtml + bitacora();
+    if (V.fase === 'espera') return barra() + vistaEspera() + avisoHtml;
+    return barra() + vistaJuego(avisoHtml);
   }
 
   function vistaEspera() {
     const soyAnf = V.yo === V.anfitrion;
     const n = V.seats.length;
+    const cfg = V.config || {};
+    let asientos = '';
+    for (let i = 0; i < 4; i++) {
+      const s = V.seats[i];
+      asientos += s
+        ? `<div class="asiento">${avatar(i, 56)}<span class="etq-nombre">${esc(s.name)}${i === V.yo ? ' (tú)' : ''}</span>${i === V.anfitrion ? '<span class="etq">anfitrión</span>' : ''}${!s.conectado ? '<span class="etq off">sin conexión</span>' : ''}</div>`
+        : `<div class="asiento libre"><span class="avatar" style="--a:56px">+</span><span class="etq-nombre" style="opacity:.5">Libre</span></div>`;
+    }
+    const config = soyAnf
+      ? `<div class="config">
+          <h3>Apuestas con dinero de juego</h3>
+          <label class="interruptor"><span>Jugar con apuestas en lempiras</span><input type="checkbox" id="cfg-on" ${cfg.apuestas ? 'checked' : ''}><span class="riel"></span></label>
+          <div class="fila">
+            <div><label for="cfg-monto">Apuesta por partida (L)</label><input id="cfg-monto" inputmode="numeric" value="${cfg.monto}"></div>
+            <div><label for="cfg-saldo">Saldo inicial (L)</label><input id="cfg-saldo" inputmode="numeric" value="${cfg.saldo}"></div>
+          </div>
+          <div style="margin-top:12px;text-align:right"><button class="btn cielo chico" data-act="guardar-config" ${enviando ? 'disabled' : ''}>Guardar apuestas</button></div>
+        </div>`
+      : `<div class="config"><h3>Apuestas</h3>${cfg.apuestas ? `Cada partida: <b>${lps(cfg.monto)}</b> al pozo · saldo inicial <b>${lps(cfg.saldo)}</b>` : 'Esta mesa juega sin apuestas.'}</div>`;
     return `<div class="sala">
-      <p style="margin:0;text-align:center;color:var(--tenue)">Comparte este código con tus amigos</p>
+      <p class="sub">Comparte este código con tus amigos</p>
       <div class="gran-codigo">${esc(mesa)}</div>
-      <button class="ancho" data-act="compartir">Enviar invitación</button>
-      <ol>${V.seats.map((s, i) => `<li>${esc(s.name)}${i === V.yo ? ' (tú)' : ''}${i === V.anfitrion ? '<span class="etiqueta">anfitrión</span>' : ''}${!s.conectado ? '<span class="etiqueta off">sin conexión</span>' : ''}</li>`).join('')}</ol>
-      ${V.espectador ? '<p>La mesa está llena (4 jugadores). Estás mirando.</p>' : ''}
+      <button class="btn cielo ancho" data-act="compartir">Enviar invitación por WhatsApp</button>
+      <div class="asientos">${asientos}</div>
+      ${V.espectador ? '<p class="sub">La mesa está llena. Estás mirando.</p>' : ''}
+      ${config}
       ${soyAnf
-        ? `<button class="principal ancho" data-act="repartir" ${n < 2 || enviando ? 'disabled' : ''}>${n < 2 ? 'Esperando al menos 2 jugadores' : `Repartir (${n} jugadores)`}</button>`
-        : `<p style="text-align:center;color:var(--tenue)">Esperando que ${nom(V.anfitrion)} reparta…</p>`}
+        ? `<button class="btn ancho" data-act="repartir" ${n < 2 || enviando ? 'disabled' : ''}>${n < 2 ? 'Esperando al menos 2 jugadores' : `Repartir (${n} jugadores)`}</button>`
+        : `<p class="sub">Esperando que ${nom(V.anfitrion)} reparta…</p>`}
     </div>`;
   }
 
-  function rivales() {
-    const n = V.seats.length;
-    const base = V.yo >= 0 ? V.yo : -1;
-    const orden = [];
-    for (let k = 1; k <= n; k++) { const i = (base + k + n) % n; if (i !== V.yo) orden.push(i); }
-    return `<div class="rivales">${orden.map((i) => {
-      const s = V.seats[i];
-      const decide = V.fase === 'juego' && V.offer && V.offer.to === i;
-      const etiquetas = (i === V.dealer ? '<span class="etiqueta">reparte</span>' : '') +
-        (V.fase === 'cambio' ? `<span class="etiqueta">${s.cambioListo ? 'listo' : 'eligiendo…'}</span>` : '') +
-        (!s.conectado ? '<span class="etiqueta off">sin conexión</span>' : '');
-      const sig = V.yo >= 0 && i === (V.yo + 1) % n ? ' <span style="color:var(--tenue);font-weight:400">· siguiente</span>' : '';
-      return `<div class="rival ${decide ? 'decide' : ''}">
-        <div class="nombre">${esc(s.name)}${sig}${etiquetas}</div>
-        <div class="cuenta">${dorso('mini')} ${s.cartas}</div>
-        ${s.melds.length ? `<div class="juegos">${s.melds.map((m) => juego(m)).join('')}</div>` : ''}
-      </div>`;
-    }).join('')}</div>`;
-  }
-
-  function vistaJuego() {
+  // Posición de cada rival alrededor de la mesa. El juego va en sentido antihorario:
+  // el siguiente jugador queda a tu derecha.
+  function posiciones() {
     const n = V.seats.length;
     const yo = V.yo;
-    const mano = R.sortHand(V.mano || [], ui.orden);
+    const otros = [];
+    if (yo >= 0) for (let k = 1; k < n; k++) otros.push((yo + k) % n);
+    else for (let k = 0; k < n; k++) otros.push(k);
+    const mapa = { 1: ['top'], 2: ['tr', 'tl'], 3: ['right', 'top', 'left'], 4: ['right', 'tr', 'tl', 'left'] }[otros.length] || [];
+    return otros.map((i, k) => ({ i, pos: mapa[k] }));
+  }
+
+  function rivalHtml({ i, pos }) {
+    const s = V.seats[i];
+    const n = Math.min(s.cartas, 10);
+    let dorsos = '';
+    for (let k = 0; k < n; k++) dorsos += dorso('', '', `style="left:${k * 5}px;transform:rotate(${(k - (n - 1) / 2) * 5}deg)"`);
+    const etq =
+      (i === V.dealer ? '<span class="etq">reparte</span>' : '') +
+      (V.fase === 'cambio' ? `<span class="etq">${s.cambioListo ? 'listo' : 'eligiendo'}</span>` : '') +
+      (!s.conectado ? '<span class="etq off">sin señal</span>' : '');
+    return `<div class="rival p-${pos}">
+      <div class="cabeza" data-anchor="seat-${i}">
+        ${avatar(i, 46)}
+        <div class="datos"><span class="etq-nombre">${esc(s.name)}</span>${saldoChip(s)}${etq}</div>
+        <div class="abanico-dorsos">${dorsos}<b>${s.cartas}</b></div>
+      </div>
+      <div class="juegos" data-anchor="melds-${i}">${s.melds.map((m) => juego(m, 'xs')).join('')}</div>
+    </div>`;
+  }
+
+  function vistaJuego(avisoHtml) {
+    const n = V.seats.length;
+    const yo = V.yo;
     const misJuegos = yo >= 0 ? V.seats[yo].melds : [];
-    let centro = '';
+    const mano = R.sortHand(V.mano || [], ui.orden);
+    let textoMesa = '';
     let pista = '';
     let botones = '';
     let manoSeleccionable = false;
@@ -220,11 +349,11 @@
 
     if (V.fase === 'cambio') {
       const dest = yo >= 0 ? nom((yo + 1) % n) : '';
-      centro = `<div class="quien">Carta de cambio</div><div class="origen">Cada jugador le pasa 1 carta al siguiente.</div>`;
+      textoMesa = 'Carta de cambio: cada quien pasa 1 al siguiente';
       if (yo >= 0 && !V.miCambio) {
         manoSeleccionable = true;
-        pista = `Elige la carta que le pasas a <b>${dest}</b>.`;
-        botones = `<button class="principal" data-act="pasar-cambio" ${!ui.pago || enviando ? 'disabled' : ''}>${ui.pago ? 'Pasarle el ' + R.cardName(ui.pago) : 'Elige una carta'}</button>`;
+        pista = `Elige la carta que le pasas a ${dest}`;
+        botones = `<button class="btn" data-act="pasar-cambio" ${!ui.pago || enviando ? 'disabled' : ''}>${ui.pago ? 'Pasarle el ' + R.cardName(ui.pago) : 'Elige una carta'}</button>`;
       } else if (yo >= 0) {
         pista = `Le pasaste el ${R.cardName(V.miCambio)} a ${dest}. Esperando a los demás…`;
       }
@@ -233,74 +362,104 @@
     if (V.fase === 'juego' && V.offer) {
       const o = V.offer;
       const mia = o.to === yo;
-      const origen = o.src === 'mazo' ? 'Salió del mazo' : `Pago de ${nom(o.by)}`;
-      centro = `
-        <div class="pila">
-          <div class="mazo">${dorso('media')}<span class="num">${V.mazo}</span></div>
-          <div class="oferta ${mia ? 'mia' : ''}">${carta(o.c, 'grande')}</div>
-        </div>
-        <div class="origen">${origen}</div>
-        <div class="quien ${mia ? 'mia' : ''}">${mia ? 'Te toca decidir' : 'Decide ' + nom(o.to)}</div>`;
+      textoMesa = (o.src === 'mazo' ? 'Salió del mazo' : `Pago de ${nom(o.by)}`) + ' · ' + (mia ? 'te toca decidir' : 'decide ' + nom(o.to));
       if (mia) {
         const puedeGanar = !!R.winArrangement(misJuegos, [...(V.mano || []), o.c]);
         const sirve = R.canUse(misJuegos, V.mano || [], o.c);
         if (ui.modo === 'idle') {
-          botones = (puedeGanar ? `<button class="ganar" data-act="ganar" ${enviando ? 'disabled' : ''}>¡Gano!</button>` : '') +
-            `<button class="principal" data-act="tomar" ${!sirve || enviando ? 'disabled' : ''}>Tomar</button>` +
-            `<button data-act="pasar" ${enviando ? 'disabled' : ''}>Pasar</button>`;
-          pista = puedeGanar ? '¡Con esta carta completas tus 10!' : sirve ? '' : 'Esta carta no te forma ningún juego.';
+          botones = (puedeGanar ? `<button class="btn oro" data-act="ganar" ${enviando ? 'disabled' : ''}>¡Gano!</button>` : '') +
+            `<button class="btn" data-act="tomar" ${!sirve || enviando ? 'disabled' : ''}>Tomar</button>` +
+            `<button class="btn cielo" data-act="pasar" ${enviando ? 'disabled' : ''}>Pasar</button>`;
+          pista = puedeGanar ? '¡Con esta carta completas tus 10!' : sirve ? '¿Te sirve el ' + R.cardName(o.c) + '?' : 'Esta carta no te forma ningún juego';
         } else if (ui.modo === 'elegir') {
           manoSeleccionable = true;
-          juegosToc = true;
+          juegosToc = misJuegos.length > 0;
           const res = R.applyTake(misJuegos, V.mano, o.c, ui.sel, ui.ext);
-          pista = misJuegos.length
-            ? `Toca las cartas de tu mano que van con el ${R.cardName(o.c)}, o toca uno de tus juegos de la mesa para agregarla.`
-            : `Toca las cartas de tu mano que forman juego con el ${R.cardName(o.c)}.`;
-          if ((ui.sel.length || ui.ext !== null) && res.err) pista += `<br><span style="color:#ffb4a9">${esc(res.err)}</span>`;
-          botones = `<button class="principal" data-act="bajar" ${res.err || enviando ? 'disabled' : ''}>Bajar juego</button><button data-act="cancelar">Cancelar</button>`;
+          pista = misJuegos.length ? `Toca las cartas que van con el ${R.cardName(o.c)} o uno de tus juegos` : `Toca las cartas que forman juego con el ${R.cardName(o.c)}`;
+          if ((ui.sel.length || ui.ext !== null) && res.err) pista += `<br><span class="err">${esc(res.err)}</span>`;
+          botones = `<button class="btn" data-act="bajar" ${res.err || enviando ? 'disabled' : ''}>Bajar juego</button><button class="btn cielo" data-act="cancelar">Cancelar</button>`;
         } else if (ui.modo === 'pagar') {
           manoSeleccionable = true;
-          pista = `Ahora paga: elige la carta que vas a soltar.`;
-          botones = `<button class="principal" data-act="pagar" ${!ui.pago || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button><button data-act="atras">Atrás</button>`;
+          pista = 'Ahora paga: elige la carta que vas a soltar';
+          botones = `<button class="btn rojo" data-act="pagar" ${!ui.pago || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button><button class="btn cielo" data-act="atras">Atrás</button>`;
         }
       }
     }
 
-    if (V.fase === 'fin') centro = vistaFinal();
+    // Centro de la mesa
+    const cfg = V.config || {};
+    const info =
+      (cfg.apuestas && V.pozo > 0 ? `<span class="pozo"><span class="l1">Pozo</span><span class="l2">${lps(V.pozo)}</span></span>` : '') +
+      (V.apuesta > 1 && V.fase !== 'fin' ? `<span class="chip" style="background:#c8201b">${apuestaTxt(V.apuesta)}</span>` : '');
+    const capas = Math.min(4, Math.ceil(V.mazo / 8));
+    let mazo = '';
+    for (let k = 0; k < capas; k++) mazo += dorso('', '', `style="left:${k * 1.5}px;top:${-k * 1.5}px"`);
+    const giros = [-14, 9, -4];
+    const descarte = (V.muertas || []).map((c, k) => carta(c, '', '', `style="transform:rotate(${giros[k % 3]}deg) translate(${k * 3 - 3}px,${k * 2}px)"`)).join('');
+    const ofertaMia = V.fase === 'juego' && V.offer && V.offer.to === yo;
+    const centro = `<div class="centro">
+      <div class="info-centro">${info}</div>
+      <div class="pila">
+        <div class="mazo" data-anchor="deck">${V.mazo ? mazo + `<span class="num">${V.mazo}</span>` : ''}</div>
+        <div class="oferta ${ofertaMia ? 'mia' : ''}" data-anchor="offer">${V.fase === 'juego' && V.offer ? carta(V.offer.c, 'lg') : '<span class="vacio-slot"></span>'}</div>
+        <div class="descarte" data-anchor="discard">${descarte}</div>
+      </div>
+      <div class="aviso-mesa">${textoMesa}</div>
+    </div>`;
 
-    // mano visible (en modo pagar, sin las cartas que ya bajé)
+    // Mi mano en abanico
     let manoVis = mano;
     if (ui.modo === 'pagar') manoVis = mano.filter((c) => !ui.sel.includes(c));
-    const manoHtml = manoVis.map((c) => {
-      let cls = '';
-      if (ui.modo === 'elegir' && ui.sel.includes(c)) cls = 'sel';
-      if ((ui.modo === 'pagar' || V.fase === 'cambio') && ui.pago === c) cls = 'sel';
-      if (V.fase === 'cambio' && V.miCambio === c) cls = 'sel';
-      if (V.recibida === c && V.fase === 'juego') cls += ' nueva';
-      return carta(c, cls, manoSeleccionable ? `data-act="carta" data-c="${c}" role="button" tabindex="0"` : '');
+    const W = Math.min(window.innerWidth, 560) - 20;
+    const cw = 56;
+    const cnt = manoVis.length;
+    const paso = cnt > 1 ? Math.min(cw * 0.8, (W - cw - 34) / (cnt - 1)) : 0;
+    const mid = (cnt - 1) / 2;
+    const manoHtml = manoVis.map((c, k) => {
+      let sel = false;
+      if (ui.modo === 'elegir' && ui.sel.includes(c)) sel = true;
+      if ((ui.modo === 'pagar' || V.fase === 'cambio') && ui.pago === c) sel = true;
+      if (V.fase === 'cambio' && V.miCambio === c) sel = true;
+      const d = k - mid;
+      const x = W / 2 + d * paso - cw / 2;
+      const y = d * d * 0.9 + (sel ? -20 : 0);
+      const cls = (sel ? 'sel' : '') + (V.recibida === c && V.fase === 'juego' ? ' nueva' : '');
+      const a = `style="left:${x}px;transform:translateY(${y}px) rotate(${d * 2.2}deg);z-index:${k + 1}"` +
+        (manoSeleccionable ? ` data-act="carta" data-c="${c}" role="button" tabindex="0"` : '');
+      return carta(c, 'md', cls, a);
     }).join('');
 
     const juegosHtml = misJuegos.length
-      ? misJuegos.map((m, i) => juego(m, 'mini', (juegosToc ? 'toc' : '') + (ui.ext === i ? ' sel' : '')).replace('<span class="juego', `<span data-act="ext" data-i="${i}" class="juego`)).join('')
-      : '<span class="vacio">Todavía no has bajado juegos.</span>';
+      ? misJuegos.map((m, i) => juego(m, 'sm', (juegosToc ? 'toc' : '') + (ui.ext === i ? ' sel' : ''), juegosToc ? `data-act="ext" data-i="${i}" role="button" tabindex="0"` : '')).join('')
+      : '<span class="vacio">Aquí van tus juegos bajados</span>';
+
+    const mio = yo >= 0
+      ? `<section class="mio">
+          <div class="mi-fila">
+            ${avatar(yo, 40)}
+            <div style="display:flex;flex-direction:column;gap:2px;align-items:flex-start"><span class="etq-nombre">${nom(yo)}</span>${saldoChip(V.seats[yo])}</div>
+            <div class="misjuegos" data-anchor="melds-${yo}">${juegosHtml}</div>
+          </div>
+          <div class="mano-wrap" data-anchor="seat-${yo}">
+            ${V.fase !== 'fin' ? `<button class="chip orden" data-act="orden">${ui.orden === 'palo' ? 'Por número' : 'Por palo'}</button>` : ''}
+            ${V.fase !== 'fin' ? manoHtml : ''}
+          </div>
+          <div class="bitacora">${esc((V.log || [])[0] || '')}</div>
+        </section>`
+      : `<p class="aviso">Estás mirando esta partida. Entras en la próxima si hay lugar.</p>`;
 
     return `
-      ${rivales()}
-      <section class="centro">
-        ${V.apuesta > 1 && V.fase !== 'fin' ? `<div><span class="apuesta">${apuestaTxt(V.apuesta)}</span></div>` : ''}
+      <div class="tapete">
+        ${posiciones().map(rivalHtml).join('')}
         ${centro}
-        ${pista ? `<div class="pista">${pista}</div>` : ''}
-        ${botones ? `<div class="acciones">${botones}</div>` : ''}
-      </section>
-      ${yo >= 0 && V.fase !== 'fin' ? `
-      <section class="mio">
-        <h2>Mis juegos en la mesa</h2>
-        <div class="misjuegos">${juegosHtml}</div>
-        <h2>Mi mano <span class="etiqueta">${mano.length}</span><span class="esp"></span>
-          <button class="chico" data-act="orden">Ordenar por ${ui.orden === 'palo' ? 'número' : 'palo'}</button></h2>
-        <div class="mano">${manoHtml}</div>
-      </section>` : ''}
-      ${V.espectador ? '<p class="vacio" style="text-align:center">Estás mirando esta partida. Entrarás en la próxima si hay lugar.</p>' : ''}
+        ${yo >= 0 && V.fase !== 'fin' ? `<div class="acciones-barra">
+            ${pista ? `<div class="pista">${pista}</div>` : ''}
+            ${botones ? `<div class="botones">${botones}</div>` : ''}
+          </div>` : ''}
+        ${V.fase === 'fin' ? vistaFinal() : ''}
+      </div>
+      ${avisoHtml}
+      ${mio}
     `;
   }
 
@@ -309,24 +468,348 @@
     let html = '';
     if (V.win) {
       const g = V.win;
-      html += `<h2>${g.seat === V.yo ? '¡Ganaste!' : `Ganó ${nom(g.seat)}`}</h2>
-        <div class="origen">con el ${R.cardName(g.carta)}${g.apuesta > 1 ? ` · iba ${apuestaTxt(g.apuesta).replace('Va ', '')}` : ''}</div>
-        <div class="juegos-ganador">${g.melds.map((m) => juego(m, '')).join('')}</div>`;
+      html += `<div>${avatar(g.seat, 64)}</div>
+        <h2>${g.seat === V.yo ? '¡Ganaste!' : `Ganó ${nom(g.seat)}`}</h2>
+        <div style="color:var(--tenue);font-weight:700">con el ${R.cardName(g.carta)}${!g.premio && g.apuesta > 1 ? ' · iba ' + apuestaTxt(g.apuesta).replace('Va ', '') : ''}</div>
+        ${g.premio ? `<div class="premio">+${lps(g.premio)}</div>` : ''}
+        <div class="juegos">${g.melds.map((m) => juego(m, 'sm')).join('')}</div>`;
     } else {
-      html += `<h2>Se acabó el mazo</h2><div class="origen">Nadie completó sus 10 cartas.</div>
-        <div><span class="apuesta">La próxima ${apuestaTxt(V.apuesta).toLowerCase()}</span></div>`;
+      html += `<h2>Se acabó el mazo</h2><div style="font-weight:700">Nadie completó sus 10 cartas.</div>
+        <div class="premio" style="background:linear-gradient(#ff9a8f,#c8201b);color:#fff">${V.pozo ? `Pozo de ${lps(V.pozo)} · ` : ''}${apuestaTxt(V.apuesta).toLowerCase()}</div>`;
     }
     const otros = V.seats.map((s, i) => ({ s, i })).filter(({ i }) => !V.win || i !== V.win.seat);
-    html += `<div class="manos-finales">${otros.map(({ s, i }) => `<div><b>${esc(s.name)}</b>${i === V.yo ? ' (tú)' : ''}<br>
-      ${s.melds.map((m) => juego(m)).join(' ')} ${(s.mano || []).map((c) => carta(c, 'mini')).join('')}</div>`).join('')}</div>`;
+    html += `<div class="otras">${otros.map(({ s, i }) => `<div>${avatar(i, 28)}<b>${esc(s.name)}</b>${saldoChip(s)}
+      ${s.melds.map((m) => juego(m, 'xs')).join('')} ${(s.mano || []).map((c) => carta(c, 'xs')).join('')}</div>`).join('')}</div>`;
     html += soyAnf
-      ? `<div class="acciones"><button class="principal" data-act="repartir" ${V.seats.length < 2 || enviando ? 'disabled' : ''}>Repartir otra</button></div>`
-      : `<p class="vacio">Esperando que ${nom(V.anfitrion)} reparta otra…</p>`;
-    return `<div class="final">${html}</div>`;
+      ? `<div style="margin-top:14px"><button class="btn" data-act="repartir" ${V.seats.length < 2 || enviando ? 'disabled' : ''}>Repartir otra</button></div>`
+      : `<p style="color:var(--tenue);font-weight:700">Esperando que ${nom(V.anfitrion)} reparta otra…</p>`;
+    return `<div class="velo"><div class="final">${html}</div></div>`;
   }
 
-  function bitacora() {
-    return `<div class="bitacora" aria-live="polite">${(V.log || []).slice(0, 4).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
+  // ---------- animaciones ----------
+  let evVisto = -1; // -1 = aún no inicializado
+  let ocultarOferta = false;
+  let colaAnim = Promise.resolve();
+  function eventosNuevos() {
+    const evs = V.evs || [];
+    const max = evs.reduce((m, e) => Math.max(m, e.id), 0);
+    if (evVisto < 0 || reducido) { evVisto = max; return []; }
+    const nuevos = evs.filter((e) => e.id > evVisto);
+    evVisto = Math.max(evVisto, max);
+    if (nuevos.length > 8) return [];
+    if (nuevos.some((e) => e.t === 'flip' || e.t === 'pago')) ocultarOferta = true;
+    return nuevos;
+  }
+  const rect = (sel) => { const el = document.querySelector(sel); return el ? el.getBoundingClientRect() : null; };
+  const anclaSeat = (i) => rect(`[data-anchor="seat-${i}"]`);
+  const anclaMelds = (i) => rect(`[data-anchor="melds-${i}"]`) || anclaSeat(i);
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function volar(desde, hasta, { c = null, dorsoInicio = false, voltear = false, dur = 420, tam = 56, rot = 0, finTam = null } = {}) {
+    if (!desde || !hasta) return Promise.resolve();
+    const h = tam * 1.4;
+    const el = document.createElement('div');
+    el.className = 'vuela';
+    el.style.width = tam + 'px';
+    el.style.height = h + 'px';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    const cara = c ? carta(c, '', '', `style="--w:${tam}px"`) : dorso('', '', `style="--w:${tam}px"`);
+    const reves = dorso('', '', `style="--w:${tam}px"`);
+    el.innerHTML = `<div class="vuela-in"><div class="cara">${dorsoInicio && !voltear ? reves : cara}</div><div class="reves">${reves}</div></div>`;
+    document.body.appendChild(el);
+    const x0 = desde.left + desde.width / 2 - tam / 2, y0 = desde.top + desde.height / 2 - h / 2;
+    const x1 = hasta.left + hasta.width / 2 - tam / 2, y1 = hasta.top + hasta.height / 2 - h / 2;
+    const s1 = finTam ? finTam / tam : 1;
+    const a = el.animate(
+      [
+        { transform: `translate(${x0}px,${y0}px) rotate(${rot}deg) scale(0.9)` },
+        { transform: `translate(${(x0 + x1) / 2}px,${Math.min(y0, y1) - 30}px) rotate(${rot / 2}deg) scale(1.08)`, offset: 0.5 },
+        { transform: `translate(${x1}px,${y1}px) rotate(0deg) scale(${s1})` },
+      ],
+      { duration: dur, easing: 'cubic-bezier(.25,.7,.3,1)', fill: 'forwards' }
+    );
+    if (voltear) {
+      el.querySelector('.vuela-in').animate([{ transform: 'rotateY(180deg)' }, { transform: 'rotateY(0deg)' }], { duration: dur, easing: 'ease-in-out', fill: 'forwards' });
+    }
+    return a.finished.catch(() => {}).then(() => el.remove());
+  }
+
+  function burbuja(r, txt) {
+    if (!r) return;
+    const b = document.createElement('div');
+    b.className = 'burbuja';
+    b.textContent = txt;
+    b.style.position = 'fixed';
+    b.style.left = r.left + r.width / 2 + 'px';
+    b.style.top = r.top - 6 + 'px';
+    document.body.appendChild(b);
+    setTimeout(() => b.remove(), 1500);
+  }
+
+  function confeti(r) {
+    if (!r) return;
+    const colores = ['#e2bd55', '#ffffff', '#8ff0b0', '#c8201b', '#8fd3f5'];
+    for (let k = 0; k < 46; k++) {
+      const p = document.createElement('div');
+      p.className = 'chispa';
+      p.style.background = colores[k % colores.length];
+      p.style.left = r.left + r.width / 2 + 'px';
+      p.style.top = r.top + r.height / 2 + 'px';
+      document.body.appendChild(p);
+      const ang = Math.random() * Math.PI * 2, vel = 90 + Math.random() * 160;
+      const dx = Math.cos(ang) * vel, dy = Math.sin(ang) * vel - 120;
+      p.animate([
+        { transform: 'translate(0,0) rotate(0)', opacity: 1 },
+        { transform: `translate(${dx}px,${dy + 260}px) rotate(${Math.random() * 720}deg)`, opacity: 0 },
+      ], { duration: 1300 + Math.random() * 500, easing: 'cubic-bezier(.2,.6,.4,1)', fill: 'forwards' }).finished.then(() => p.remove());
+    }
+  }
+
+  function mostrarOferta() {
+    ocultarOferta = false;
+    const o = $('[data-anchor="offer"] .carta');
+    if (o) o.classList.remove('oculta');
+  }
+
+  function animar(evs) {
+    colaAnim = colaAnim.then(async () => {
+      for (const e of evs) {
+        try {
+          if (e.t === 'reparto') {
+            const n = V.seats.length;
+            const ps = [];
+            for (let k = 0; k < 9; k++)
+              for (let s = 0; s < n; s++) {
+                const i = (V.dealer + 1 + s) % n;
+                ps.push(espera((k * n + s) * 32).then(() => volar(rect('[data-anchor="deck"]'), anclaSeat(i), { dur: 340, tam: 40 })));
+              }
+            await Promise.all(ps);
+          } else if (e.t === 'cambio') {
+            const n = V.seats.length;
+            await Promise.all(V.seats.map((_, i) => volar(anclaSeat(i), anclaSeat((i + 1) % n), { dur: 520, tam: 40 })));
+          } else if (e.t === 'flip') {
+            await volar(rect('[data-anchor="deck"]'), rect('[data-anchor="offer"]'), { c: e.c, voltear: true, dur: 460, tam: 82 });
+            mostrarOferta();
+          } else if (e.t === 'muerta') {
+            await volar(rect('[data-anchor="offer"]'), rect('[data-anchor="discard"]'), { c: e.c, dur: 380, tam: 82, finTam: 40, rot: 8 });
+          } else if (e.t === 'pasa') {
+            burbuja(anclaSeat(e.seat), 'Paso');
+            await espera(160);
+          } else if (e.t === 'toma') {
+            await volar(rect('[data-anchor="offer"]'), anclaMelds(e.seat), { c: e.c, dur: 460, tam: 82, finTam: e.seat === V.yo ? 36 : 28 });
+          } else if (e.t === 'pago') {
+            await volar(anclaSeat(e.seat), rect('[data-anchor="offer"]'), { c: e.c, dur: 460, tam: 56, finTam: 82, rot: -10 });
+            mostrarOferta();
+          } else if (e.t === 'gana') {
+            confeti(rect('.final .avatar') || anclaSeat(e.seat));
+            if (navigator.vibrate) try { navigator.vibrate([60, 60, 120]); } catch {}
+          }
+        } catch (err) {
+          console.warn(err);
+        }
+      }
+      mostrarOferta();
+    });
+  }
+
+  // ---------- audio (micrófono abierto entre la mesa) ----------
+  const Voz = {
+    on: false, mudo: false, stream: null, pcs: new Map(), ice: null, ctx: null, niveles: new Map(),
+
+    async entrar() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
+        aviso = { txt: 'Este navegador no permite audio. Usa Chrome en Android o Safari en iPhone.', error: true };
+        return render();
+      }
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      } catch {
+        aviso = { txt: 'No se pudo usar el micrófono. Da permiso de micrófono a la app en los ajustes del teléfono.', error: true };
+        return render();
+      }
+      if (!this.ice) {
+        try { this.ice = (await (await fetch('/api/ice')).json()).iceServers; } catch { this.ice = [{ urls: 'stun:stun.l.google.com:19302' }]; }
+      }
+      try {
+        this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        await this.ctx.resume();
+      } catch {}
+      this.on = true;
+      this.mudo = false;
+      if (V && V.yo >= 0) this.medir(V.seats[V.yo].vid, this.stream, true);
+      await accion({ t: 'voz', on: true, mudo: false }, true);
+      this.sync();
+      render();
+    },
+
+    salir(silencioso) {
+      if (!this.on) return;
+      this.on = false;
+      for (const vid of [...this.pcs.keys()]) this.cerrar(vid);
+      if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+      this.niveles.clear();
+      $('#audios').innerHTML = '';
+      if (!silencioso && mesa) accion({ t: 'voz', on: false }, true);
+      render();
+    },
+
+    alternarMudo() {
+      if (!this.on) return;
+      this.mudo = !this.mudo;
+      this.stream.getAudioTracks().forEach((t) => (t.enabled = !this.mudo));
+      accion({ t: 'voz', on: true, mudo: this.mudo }, true);
+      render();
+    },
+
+    sync() {
+      if (!this.on || !V || V.yo < 0) return;
+      const yo = V.seats[V.yo].vid;
+      const quieren = new Set(V.seats.filter((s, i) => i !== V.yo && s.voz && s.conectado).map((s) => s.vid));
+      for (const vid of [...this.pcs.keys()]) if (!quieren.has(vid)) this.cerrar(vid);
+      for (const vid of quieren) if (!this.pcs.has(vid) && yo < vid) this.llamar(vid);
+    },
+
+    nueva(vid) {
+      const pc = new RTCPeerConnection({ iceServers: this.ice });
+      pc._pend = [];
+      this.stream.getTracks().forEach((t) => pc.addTrack(t, this.stream));
+      pc.onicecandidate = (e) => { if (e.candidate) this.enviar(vid, { cand: e.candidate }); };
+      pc.ontrack = (e) => {
+        const st = e.streams[0] || new MediaStream([e.track]);
+        let a = document.getElementById('au-' + vid);
+        if (!a) {
+          a = document.createElement('audio');
+          a.id = 'au-' + vid;
+          a.autoplay = true;
+          a.setAttribute('playsinline', '');
+          $('#audios').appendChild(a);
+        }
+        a.srcObject = st;
+        a.play().catch(() => {});
+        this.medir(vid, st);
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed') {
+          this.cerrar(vid);
+          setTimeout(() => this.sync(), 1500);
+        }
+      };
+      this.pcs.set(vid, pc);
+      return pc;
+    },
+
+    async llamar(vid) {
+      const pc = this.nueva(vid);
+      try {
+        await pc.setLocalDescription(await pc.createOffer());
+        this.enviar(vid, { sdp: pc.localDescription });
+      } catch (e) { console.warn(e); }
+    },
+
+    cerrar(vid) {
+      const pc = this.pcs.get(vid);
+      if (pc) try { pc.close(); } catch {}
+      this.pcs.delete(vid);
+      const a = document.getElementById('au-' + vid);
+      if (a) a.remove();
+      this.niveles.delete(vid);
+    },
+
+    enviar(to, data) {
+      post('senal', { code: mesa, to, data: JSON.parse(JSON.stringify(data)) });
+    },
+
+    async recibir({ from, data }) {
+      if (!this.on || !data || !from) return;
+      try {
+        if (data.sdp && data.sdp.type === 'offer') {
+          this.cerrar(from);
+          const pc = this.nueva(from);
+          await pc.setRemoteDescription(data.sdp);
+          for (const c of pc._pend) await pc.addIceCandidate(c);
+          pc._pend = [];
+          await pc.setLocalDescription(await pc.createAnswer());
+          this.enviar(from, { sdp: pc.localDescription });
+        } else if (data.sdp && data.sdp.type === 'answer') {
+          const pc = this.pcs.get(from);
+          if (pc && pc.signalingState === 'have-local-offer') {
+            await pc.setRemoteDescription(data.sdp);
+            for (const c of pc._pend) await pc.addIceCandidate(c);
+            pc._pend = [];
+          }
+        } else if (data.cand) {
+          const pc = this.pcs.get(from);
+          if (!pc) return;
+          if (pc.remoteDescription) await pc.addIceCandidate(data.cand);
+          else pc._pend.push(data.cand);
+        }
+      } catch (e) { console.warn(e); }
+    },
+
+    medir(vid, stream, propio) {
+      if (!this.ctx) return;
+      try {
+        const src = this.ctx.createMediaStreamSource(stream);
+        const an = this.ctx.createAnalyser();
+        an.fftSize = 512;
+        src.connect(an);
+        this.niveles.set(vid, { an, buf: new Uint8Array(an.fftSize), propio, suave: 0 });
+      } catch {}
+    },
+  };
+
+  // Aro verde en la foto de quien está hablando
+  (function bucleHabla() {
+    if (Voz.on) {
+      for (const [vid, n] of Voz.niveles) {
+        n.an.getByteTimeDomainData(n.buf);
+        let sum = 0;
+        for (let k = 0; k < n.buf.length; k++) { const v = (n.buf[k] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / n.buf.length);
+        n.suave = n.suave * 0.8 + rms * 0.2;
+        const habla = n.suave > 0.025 && !(n.propio && Voz.mudo);
+        document.querySelectorAll(`[data-vid="${vid}"]`).forEach((el) => el.classList.toggle('habla', habla));
+      }
+    }
+    requestAnimationFrame(bucleHabla);
+  })();
+
+  // ---------- foto de perfil ----------
+  const archivo = $('#archivo-foto');
+  archivo.addEventListener('change', async () => {
+    const f = archivo.files && archivo.files[0];
+    archivo.value = '';
+    if (!f) return;
+    try {
+      miFoto = await reducirFoto(f);
+      guardar('foto', miFoto);
+      if (mesa) await post('foto', { code: mesa, foto: miFoto });
+    } catch {
+      aviso = { txt: 'No se pudo leer esa foto. Prueba con otra.', error: true };
+    }
+    render();
+  });
+  function reducirFoto(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const L = 192;
+        const lado = Math.min(img.naturalWidth, img.naturalHeight);
+        const cv = document.createElement('canvas');
+        cv.width = L; cv.height = L;
+        const cx = cv.getContext('2d');
+        cx.drawImage(img, (img.naturalWidth - lado) / 2, (img.naturalHeight - lado) / 2, lado, lado, 0, 0, L, L);
+        URL.revokeObjectURL(url);
+        let q = 0.82, out = cv.toDataURL('image/jpeg', q);
+        while (out.length > 60000 && q > 0.4) { q -= 0.12; out = cv.toDataURL('image/jpeg', q); }
+        resolve(out);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('foto')); };
+      img.src = url;
+    });
   }
 
   // ---------- acciones ----------
@@ -355,14 +838,19 @@
     async compartir() {
       const url = location.origin + '/?mesa=' + mesa;
       const texto = `¡Vamos a jugar Diez! Entra con el código ${mesa}: ${url}`;
-      if (navigator.share) { try { await navigator.share({ title: 'Diez', text: texto, url }); return; } catch {} }
+      if (navigator.share) { try { await navigator.share({ title: 'Diez', text: texto }); return; } catch {} }
       try { await navigator.clipboard.writeText(texto); aviso = { txt: 'Invitación copiada. Pégala en WhatsApp.' }; }
       catch { aviso = { txt: texto }; }
       render();
     },
+    foto() { archivo.click(); },
     reglas() { $('#reglas').classList.add('abierto'); },
     'cerrar-reglas'() { $('#reglas').classList.remove('abierto'); },
     repartir() { accion({ t: 'repartir' }); },
+    async 'guardar-config'() {
+      const r = await accion({ t: 'config', apuestas: $('#cfg-on').checked, monto: Number(String($('#cfg-monto').value).replace(/[^0-9]/g, '')), saldo: Number(String($('#cfg-saldo').value).replace(/[^0-9]/g, '')) });
+      if (r && r.ok) { aviso = { txt: 'Apuestas guardadas.' }; render(); }
+    },
     orden() { ui.orden = ui.orden === 'palo' ? 'numero' : 'palo'; guardar('orden', ui.orden); render(); },
     carta(el) {
       const c = el.dataset.c;
@@ -382,14 +870,16 @@
     pasar() { accion({ t: 'pasar' }); },
     ganar() { accion({ t: 'ganar' }); },
     bajar() {
-      const yo = V.yo;
-      const res = R.applyTake(V.seats[yo].melds, V.mano, V.offer.c, ui.sel, ui.ext);
+      const res = R.applyTake(V.seats[V.yo].melds, V.mano, V.offer.c, ui.sel, ui.ext);
       if (res.err) return;
       if (R.winArrangement(res.melds, res.hand)) return accion({ t: 'tomar', use: ui.sel, ext: ui.ext });
       ui.modo = 'pagar'; ui.pago = null; render();
     },
     atras() { ui.modo = 'elegir'; ui.pago = null; render(); },
     pagar() { if (ui.pago) accion({ t: 'tomar', use: ui.sel, ext: ui.ext, pay: ui.pago }); },
+    voz() { Voz.entrar(); },
+    'voz-salir'() { Voz.salir(); },
+    mudo() { Voz.alternarMudo(); },
     async instalar() {
       if (!deferredPrompt) return;
       deferredPrompt.prompt();
@@ -408,6 +898,7 @@
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-act][role="button"]')) { e.preventDefault(); e.target.click(); }
     if (e.key === 'Escape') $('#reglas').classList.remove('abierto');
   });
+  window.addEventListener('resize', () => { if (mesa && V && V.fase !== 'espera') render(); });
 
   // ---------- PWA ----------
   let deferredPrompt = null;

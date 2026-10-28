@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Diez · Juego de cartas</title>
   <meta name="description" content="Juego de cartas en línea para 2 a 4 amigos">
-  <meta name="theme-color" content="#2e0d14">
+  <meta name="theme-color" content="#0f4317">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -15,11 +15,13 @@
   <meta name="apple-mobile-web-app-title" content="Diez">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alegreya:wght@700;800&family=Alegreya+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya:wght@700;800&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main id="app"></main>
+  <div id="audios" hidden></div>
+  <input type="file" id="archivo-foto" accept="image/*" hidden>
   <div class="modal" id="reglas" role="dialog" aria-modal="true" aria-labelledby="reglas-titulo">
     <div class="hoja">
       <h2 id="reglas-titulo">Cómo se juega</h2>
@@ -49,9 +51,12 @@
       <ul>
         <li>Gana quien completa las 10 cartas en juegos al tomar una carta. Al ganar no se paga.</li>
         <li>Si se acaba el mazo y nadie gana, la próxima partida <b>va doble</b>, luego triple, y así hasta que alguien gane.</li>
+        <li>Si la mesa juega con apuestas, cada jugador pone la apuesta en el pozo al repartir. Quien gana se lleva todo el pozo. Si nadie gana, el pozo se queda y en la siguiente todos ponen otra vez. Es dinero de juego, no real.</li>
         <li>Si alguien pierde la conexión, después de unos segundos pasa automáticamente para no trabar la mesa. Puede volver a entrar con el mismo código.</li>
       </ul>
-      <button class="ancho" data-act="cerrar-reglas">Entendido</button>
+      <h3>Micrófono</h3>
+      <p>Toca el botón del micrófono para hablar con la mesa. Puedes silenciarte cuando quieras. Funciona mientras la app esté abierta en pantalla.</p>
+      <button class="btn ancho" data-act="cerrar-reglas">Entendido</button>
     </div>
   </div>
   <script src="/rules.js"></script>
