@@ -31,19 +31,22 @@ Abre http://localhost:3000
 
 Ese enlace es el que compartes con tus amigos.
 
-## Audio entre jugadores (recomendado: servidor TURN gratis)
+## Audio entre jugadores: servidor TURN de Cloudflare (gratis)
 
-El micrófono abierto conecta los teléfonos directamente. Con Wi-Fi casi siempre funciona solo, pero entre datos móviles de distintas compañías a veces hace falta un servidor "TURN" que pase el audio. Metered da uno gratis (20 GB al mes, suficiente para muchas partidas):
+Sin un servidor TURN el audio solo funciona si todos están en la misma red Wi‑Fi. Cloudflare da 1,000 GB gratis al mes, muchísimo para el audio de una mesa.
 
-1. Crea una cuenta gratis en https://www.metered.ca/stun-turn
-2. En el panel, ve a **TURN Server → Add Credential** y copia el usuario y la contraseña.
-3. En Render, abre tu servicio → **Environment** y agrega estas 3 variables:
-   - `TURN_URL` = `turn:standard.relay.metered.ca:80,turn:standard.relay.metered.ca:443,turns:standard.relay.metered.ca:443?transport=tcp`
-   - `TURN_USER` = el usuario que copiaste
-   - `TURN_PASS` = la contraseña que copiaste
-4. Guarda. Render reinicia el servidor solo.
+1. Crea una cuenta en https://dash.cloudflare.com (no necesitas dominio).
+2. En el menú de la izquierda busca **Realtime** → **TURN Server** y toca **Create** (ponle de nombre `diez`).
+3. Cloudflare te muestra dos datos: **Turn Token ID** y **API Token**. Cópialos y guárdalos: el API Token no se vuelve a mostrar.
+4. En Render, abre tu servicio → **Environment** → **Add Environment Variable** y agrega:
+   - `CF_TURN_KEY_ID` = el Turn Token ID
+   - `CF_TURN_API_TOKEN` = el API Token
+5. Toca **Save Changes**. Render reinicia el servidor solo.
+6. Para comprobarlo: en la app entra al audio y toca el botón 🔊. Debe decir **"Servidor TURN: activo ✔"**.
 
-Sin estas variables el juego funciona igual; solo el audio puede fallar en algunas redes.
+El API Token queda guardado solo en el servidor; los teléfonos reciben credenciales temporales que vencen en 24 horas.
+
+(Alternativa: cualquier otro TURN con usuario y contraseña fijos se configura con `TURN_URL`, `TURN_USER` y `TURN_PASS`.)
 
 ## Instalar en el celular
 

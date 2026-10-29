@@ -712,9 +712,12 @@
         return render();
       }
       this.vigilarMic();
-      if (!this.ice) {
-        try { this.ice = (await (await fetch('/api/ice', { cache: 'no-store' })).json()).iceServers; } catch { this.ice = [{ urls: 'stun:stun.l.google.com:19302' }]; }
-      }
+      // Credenciales nuevas cada vez que entras al audio (las de Cloudflare vencen en 24 h)
+      try {
+        const j = await (await fetch('/api/ice', { cache: 'no-store' })).json();
+        this.ice = j.iceServers;
+        this.hayTurn = !!j.turn;
+      } catch { this.ice = [{ urls: 'stun:stun.l.google.com:19302' }]; this.hayTurn = false; }
       this.on = true;
       this.mudo = false;
       this.micCortado = false;
@@ -916,7 +919,8 @@
       return `<li><b>${esc(s.name)}</b>: ${est}${s.mudo ? ' (silenciado)' : ''}${llega}</li>`;
     }).join('');
     return `<h2>Estado del audio</h2><ul>${filas}</ul>
-      <p>Si alguien se queda en "conectando" o "falló", casi siempre es la red de datos móviles: el servidor necesita el servicio TURN (ver la guía). Prueben también con Wi‑Fi.</p>
+      <p>${Voz.hayTurn ? 'Servidor TURN: activo ✔' : 'Servidor TURN: <b>no configurado</b>. Sin él, el audio solo funciona si todos están en la misma red Wi‑Fi (ver la guía).'}</p>
+      <p>Si alguien se queda en "conectando" o "falló", revisa su señal de internet o prueben con Wi‑Fi.</p>
       <p>Si no oyes a nadie, toca la pantalla una vez y revisa que el teléfono no esté en silencio.</p>`;
   }
 

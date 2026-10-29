@@ -88,9 +88,43 @@ function escribir(cli, evento, datos) {
 const enviar = (cli, mesa) => escribir(cli, 'estado', mesa.vista(cli.pid));
 const enviarFotos = (cli, mesa) => escribir(cli, 'fotos', mesa.fotosVista());
 
-// Servidores para conectar el audio. STUN público + TURN opcional por variables de entorno.
-function iceServers() {
-  const l = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+// Servidores para conectar el audio entre redes distintas (datos móviles, otro Wi‑Fi).
+// Opción 1 (recomendada): Cloudflare TURN → variables CF_TURN_KEY_ID y CF_TURN_API_TOKEN.
+// Opción 2: cualquier TURN con usuario fijo → TURN_URL, TURN_USER, TURN_PASS.
+const STUN_BASE = { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] };
+let cacheCF = { hasta: 0, servidores: null };
+
+async function iceCloudflare() {
+  const id = process.env.CF_TURN_KEY_ID, token = process.env.CF_TURN_API_TOKEN;
+  if (!id || !token) return null;
+  if (cacheCF.servidores && Date.now() < cacheCF.hasta) return cacheCF.servidores;
+  try {
+    const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(id)}/credentials/generate-ice-servers`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ttl: 86400 }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) throw new Error('Cloudflare respondió ' + r.status);
+    const j = await r.json();
+    let lista = Array.isArray(j.iceServers) ? j.iceServers : j.iceServers ? [j.iceServers] : [];
+    // Los navegadores bloquean el puerto 53: se quitan esas direcciones
+    lista = lista
+      .map((x) => ({ ...x, urls: (Array.isArray(x.urls) ? x.urls : [x.urls]).filter((u) => u && !/:53(\?|$)/.test(u)) }))
+      .filter((x) => x.urls.length);
+    if (!lista.length) throw new Error('Cloudflare no devolvió servidores');
+    cacheCF = { hasta: Date.now() + 12 * 3600 * 1000, servidores: lista };
+    return lista;
+  } catch (e) {
+    console.error('No se pudieron obtener credenciales TURN de Cloudflare:', e.message);
+    return null;
+  }
+}
+
+async function iceServers() {
+  const cf = await iceCloudflare();
+  if (cf) return cf;
+  const l = [STUN_BASE];
   if (process.env.TURN_URL) {
     l.push({
       urls: process.env.TURN_URL.split(',').map((s) => s.trim()),
@@ -208,7 +242,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: 'Ruta desconocida' });
   }
 
-  if (req.method === 'GET' && u.pathname === '/api/ice') return json(res, 200, { iceServers: iceServers() });
+  if (req.method === 'GET' && u.pathname === '/api/ice') return json(res, 200, { iceServers: await iceServers(), turn: !!(process.env.CF_TURN_KEY_ID || process.env.TURN_URL) });
   if (req.method === 'GET' && u.pathname === '/salud') return json(res, 200, { ok: true, mesas: mesas.size });
 
   if (req.method === 'GET') return servirEstatico(req, res);
@@ -236,4 +270,4 @@ setInterval(() => {
 }, 3000);
 
 server.listen(PORT, () => console.log(`Diez listo en http://localhost:${PORT}`));
-module.exports = { server, mesas };
+module.exports = { server, mesas, iceServers };

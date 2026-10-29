@@ -1,6 +1,6 @@
 // Service worker: guarda la app para que abra rápido y funcione como app instalada.
 // Las partidas siempre van por la red (/api/...).
-const CACHE = 'diez-v10';
+const CACHE = 'diez-v11';
 const BASE = ['/', '/index.html', '/style.css', '/app.js', '/rules.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
