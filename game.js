@@ -131,7 +131,35 @@ class Mesa {
     return null;
   }
 
+  // Terminar el juego: resumen final para todos; la mesa ya no reparte más
+  terminar(pid) {
+    if (!(this.fase === 'espera' || this.fase === 'fin')) return 'Termina primero la partida en juego';
+    if (this.seatOf(pid) !== this.anfitrion()) return 'Solo el anfitrión puede terminar el juego';
+    let devuelto = 0;
+    if (this.pozo > 0 && this.seats.length) {
+      // Pozo sin ganador: se devuelve repartido en partes iguales
+      const parte = Math.floor(this.pozo / this.seats.length);
+      this.seats.forEach((s) => (s.saldo += parte));
+      devuelto = this.pozo;
+      this.pozo = 0;
+    }
+    this.fase = 'terminada';
+    this.resumen = {
+      apuestas: this.config.apuestas,
+      saldoInicial: this.config.saldo,
+      partidas: this.partidas,
+      devuelto,
+      jugadores: this.seats
+        .map((s, i) => ({ i, name: s.name, ganadas: s.ganadas || 0, saldo: s.saldo, diferencia: s.saldo - this.config.saldo }))
+        .sort((a, b) => (this.config.apuestas ? b.saldo - a.saldo : 0) || b.ganadas - a.ganadas),
+    };
+    this.addLog('El anfitrión terminó el juego');
+    this.ev('terminado');
+    return null;
+  }
+
   repartir(pid) {
+    if (this.fase === 'terminada') return 'Este juego ya terminó';
     if (!(this.fase === 'espera' || this.fase === 'fin')) return 'La partida ya empezó';
     if (this.seatOf(pid) !== this.anfitrion()) return 'Solo el anfitrión reparte';
     for (const [epid, name] of this.espectadores) {
@@ -298,6 +326,8 @@ class Mesa {
     a = a || {};
 
     if (a.t === 'repartir') return this.repartir(pid);
+    if (a.t === 'terminar') return this.terminar(pid);
+    if (this.fase === 'terminada' && a.t !== 'voz') return 'Este juego ya terminó';
     if (a.t === 'config') return this.configurar(pid, a);
     if (a.t === 'voz') {
       s.voz = !!a.on;
@@ -421,6 +451,7 @@ class Mesa {
   }
 
   ganar(seat, arr, c) {
+    this.seats[seat].ganadas = (this.seats[seat].ganadas || 0) + 1;
     const premio = this.pozo;
     if (premio) this.seats[seat].saldo += premio;
     this.pozo = 0;
@@ -478,6 +509,7 @@ class Mesa {
       log: this.log,
       win: this.win,
       motivoFin: this.motivoFin || null,
+      resumen: this.fase === 'terminada' ? this.resumen : null,
       config: this.config,
       pozo: this.pozo,
       evs: this.evs,
@@ -496,6 +528,7 @@ class Mesa {
         saldo: x.saldo,
         cambioListo: !!this.passes[x.pid],
         cerrado: !!x.cerrado,
+        ganadas: x.ganadas || 0,
         mano: fin && this.partidas > 0 ? x.hand : undefined,
       })),
     };

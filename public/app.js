@@ -28,6 +28,7 @@
   let enviando = false;
   let armarSalir = false;
   let armarCierre = false, timerCierre = null;
+  let armarTerminar = false, timerTerminar = null;
   const ui = { modo: 'idle', sel: [], ext: null, des: null, pago: null, orden: leer('orden') || 'palo', clave: '' };
   let miOrden = leer('miorden') || [];
 
@@ -253,6 +254,8 @@
     return `<p class="instalar">${ios ? 'Para instalarla en iPhone: en Safari toca Compartir y luego "Agregar a inicio".' : 'Para instalarla: abre el menú del navegador y toca "Instalar app".'}</p>`;
   }
 
+  // Barra superior compacta: código · audio · menú ⋯ (nunca se sale de la pantalla)
+  let menuAbierto = false;
   function barra() {
     const enMesa = V && V.yo >= 0;
     let mic = '';
@@ -261,27 +264,34 @@
       else {
         const otros = V.seats.filter((s, i) => i !== V.yo && s.voz && s.conectado);
         const ok = otros.filter((s) => (Voz.info.get(s.vid) || {}).estado === 'conectado').length;
-        mic = (Voz.micCortado ? `<button class="chip mudo" data-act="reactivar-mic">${ICON.micOff}<span class="lbl">Reactivar mic</span></button>` :
-          `<button class="chip ${Voz.mudo ? 'mudo' : 'activo'}" data-act="mudo" aria-label="${Voz.mudo ? 'Activar micrófono' : 'Silenciar micrófono'}">${Voz.mudo ? ICON.micOff + '<span class="lbl">Silenciado</span>' : ICON.mic + '<span class="lbl">Mic abierto</span>'}</button>`) +
-          (Voz.bloqueado ? `<button class="chip mudo" data-act="destrabar">Toca para oír</button>` : '') +
-          `<button class="chip ${otros.length && ok < otros.length ? 'mudo' : ''}" data-act="estado-audio" aria-label="Estado del audio">🔊 ${ok}/${otros.length}</button>` +
-          `<button class="chip" data-act="voz-salir" aria-label="Salir del audio">${ICON.cerrar}</button>`;
+        mic = (Voz.micCortado ? `<button class="chip mudo" data-act="reactivar-mic" aria-label="Reactivar micrófono">${ICON.micOff}<span class="lbl">Reactivar</span></button>` :
+          `<button class="chip ${Voz.mudo ? 'mudo' : 'activo'}" data-act="mudo" aria-label="${Voz.mudo ? 'Activar micrófono' : 'Silenciar micrófono'}">${Voz.mudo ? ICON.micOff : ICON.mic}<span class="lbl">${Voz.mudo ? 'Silenciado' : 'Mic'}</span></button>`) +
+          (Voz.bloqueado ? `<button class="chip mudo" data-act="destrabar" aria-label="Activar el sonido">🔈<span class="lbl">Oír</span></button>` : '') +
+          `<button class="chip ${otros.length && ok < otros.length ? 'mudo' : ''}" data-act="estado-audio" aria-label="Estado del audio">🔊 ${ok}/${otros.length}</button>`;
       }
     }
+    const menu = menuAbierto ? `<div class="menu" role="menu">
+        <button role="menuitem" data-act="compartir">${ICON.compartir} Invitar amigos</button>
+        <button role="menuitem" data-act="reglas">? Ver reglas</button>
+        ${Voz.on ? `<button role="menuitem" data-act="voz-salir">${ICON.micOff} Salir del audio</button>` : ''}
+        <button role="menuitem" class="peligro" data-act="salir">${ICON.salir} ${armarSalir ? '¿Seguro? Toca otra vez' : 'Salir de la mesa'}</button>
+      </div>` : '';
     return `<div class="barra">
       <span class="chip codigo">${esc(mesa)}</span>
-      <button class="chip" data-act="compartir" aria-label="Invitar">${ICON.compartir}<span class="lbl">Invitar</span></button>
+      ${!conectado ? '<span class="chip mudo" style="cursor:default" title="Reconectando">…</span>' : ''}
       <span class="esp"></span>
-      ${!conectado ? '<span class="chip mudo" style="cursor:default">…<span class="lbl">Reconectando</span></span>' : ''}
       ${mic}
-      <button class="chip" data-act="reglas" aria-label="Reglas">?</button>
-      <button class="chip ${armarSalir ? 'mudo' : ''}" data-act="salir" aria-label="Salir de la mesa">${armarSalir ? '¿Salir?' : ICON.salir}</button>
+      <div class="menu-wrap">
+        <button class="chip ${menuAbierto ? 'activo' : ''}" data-act="menu" aria-label="Más opciones" aria-expanded="${menuAbierto}">⋯</button>
+        ${menu}
+      </div>
     </div>`;
   }
 
   function vistaMesa() {
     if (!V) return barra() + `<div class="sala"><p class="sub">Conectando con la mesa…</p></div>`;
     const avisoHtml = aviso ? `<div class="aviso ${aviso.error ? 'error' : ''}">${esc(aviso.txt)}</div>` : '';
+    if (V.fase === 'terminada') return barra() + vistaResumen();
     if (V.fase === 'espera') return barra() + vistaEspera() + avisoHtml;
     return barra() + vistaJuego(avisoHtml);
   }
@@ -537,6 +547,31 @@
     return `<span class="juego toc ${ui.ext === i ? 'sel' : ''}">${cartas}<button class="mas" data-act="ext" data-i="${i}" aria-label="Agregar la carta a este juego">+</button></span>`;
   }
 
+  // Resumen al terminar el juego
+  function vistaResumen() {
+    const r = V.resumen || { jugadores: [] };
+    const medallas = ['🥇', '🥈', '🥉'];
+    const filas = r.jugadores.map((j, k) => {
+      const dif = r.apuestas ? `<span class="dif ${j.diferencia > 0 ? 'gana' : j.diferencia < 0 ? 'pierde' : ''}">${j.diferencia > 0 ? '+' : ''}${lps(j.diferencia)}</span>` : '';
+      return `<div class="fila-res ${k === 0 ? 'primero' : ''}">
+        <span class="pos">${medallas[k] || k + 1}</span>
+        ${avatar(j.i, 44)}
+        <div class="quien"><b>${esc(j.name)}</b><span>${j.ganadas} ${j.ganadas === 1 ? 'partida ganada' : 'partidas ganadas'}</span></div>
+        <div class="cuanto">${r.apuestas ? `<b>${lps(j.saldo)}</b>${dif}` : ''}</div>
+      </div>`;
+    }).join('');
+    return `<div class="resumen">
+      <h2>¡Gracias por jugar!</h2>
+      <p class="sub">${r.partidas} ${r.partidas === 1 ? 'partida' : 'partidas'}${r.apuestas ? ` · saldo inicial ${lps(r.saldoInicial)}` : ''}</p>
+      <div class="tabla-res">${filas}</div>
+      ${r.devuelto ? `<p class="sub">Quedaba un pozo de ${lps(r.devuelto)} sin ganador: se devolvió repartido entre todos.</p>` : ''}
+      <div class="fin-botones">
+        <button class="btn cielo" data-act="compartir-resumen">Compartir resultados</button>
+        <button class="btn" data-act="inicio">Volver al inicio</button>
+      </div>
+    </div>`;
+  }
+
   function vistaFinal() {
     const soyAnf = V.yo === V.anfitrion;
     let html = '';
@@ -555,8 +590,11 @@
     html += `<div class="otras">${otros.map(({ s, i }) => `<div>${avatar(i, 28)}<b>${esc(s.name)}</b>${s.cerrado ? '<span class="etq off">se cerró</span>' : ''}${saldoChip(s)}
       ${s.melds.map((m) => juego(m, 'xs')).join('')} ${(s.mano || []).map((c) => carta(c, 'xs')).join('')}</div>`).join('')}</div>`;
     html += soyAnf
-      ? `<div style="margin-top:14px"><button class="btn" data-act="repartir" ${V.seats.length < 2 || enviando ? 'disabled' : ''}>Repartir otra</button></div>`
-      : `<p style="color:var(--tenue);font-weight:700">Esperando que ${nom(V.anfitrion)} reparta otra…</p>`;
+      ? `<div class="fin-botones">
+          <button class="btn" data-act="repartir" ${V.seats.length < 2 || enviando ? 'disabled' : ''}>Seguir jugando</button>
+          <button class="btn ${armarTerminar ? 'rojo' : 'cielo'}" data-act="terminar" ${enviando ? 'disabled' : ''}>${armarTerminar ? '¿Seguro? Toca otra vez' : 'Terminar el juego'}</button>
+        </div>`
+      : `<p style="color:var(--tenue);font-weight:700">Esperando que ${nom(V.anfitrion)} decida si siguen jugando…</p>`;
     return `<div class="velo"><div class="final">${html}</div></div>`;
   }
 
@@ -667,6 +705,9 @@
             mostrarOferta();
           } else if (e.t === 'muerta') {
             await volar(rect('[data-anchor="offer"]'), rect('[data-anchor="discard"]'), { c: e.c, dur: 380, tam: tamOferta(), finTam: 40, rot: 8 });
+          } else if (e.t === 'terminado') {
+            await espera(150);
+            confeti(rect('.fila-res.primero .avatar'));
           } else if (e.t === 'cierra') {
             burbuja(anclaSeat(e.seat), 'Me cierro');
             await espera(200);
@@ -977,9 +1018,11 @@
       aviso = r.espectador ? { txt: 'La partida ya empezó o está llena: entras mirando.' } : null;
       conectar(code); render();
     },
+    menu() { menuAbierto = !menuAbierto; armarSalir = false; render(); },
     async salir() {
       if (!armarSalir) { armarSalir = true; render(); setTimeout(() => { armarSalir = false; render(); }, 3000); return; }
       armarSalir = false;
+      menuAbierto = false;
       await post('salir', { code: mesa });
       salirLocal(); render();
     },
@@ -995,6 +1038,19 @@
     reglas() { $('#reglas').classList.add('abierto'); },
     'cerrar-reglas'() { $('#reglas').classList.remove('abierto'); },
     repartir() { accion({ t: 'repartir' }); },
+    terminar() {
+      if (!armarTerminar) { armarTerminar = true; render(); clearTimeout(timerTerminar); timerTerminar = setTimeout(() => { armarTerminar = false; render(); }, 3500); return; }
+      armarTerminar = false; clearTimeout(timerTerminar);
+      accion({ t: 'terminar' });
+    },
+    async inicio() { await post('salir', { code: mesa }); salirLocal(); render(); },
+    async 'compartir-resumen'() {
+      const r = V.resumen || { jugadores: [] };
+      const txt = '🃏 Resultados de Diez (mesa ' + mesa + ')\n' + r.jugadores.map((j, k) => `${k + 1}. ${j.name}: ${j.ganadas} ganadas` + (r.apuestas ? ` · ${lps(j.saldo)} (${j.diferencia > 0 ? '+' : ''}${lps(j.diferencia)})` : '')).join('\n');
+      if (navigator.share) { try { await navigator.share({ title: 'Resultados de Diez', text: txt }); return; } catch {} }
+      try { await navigator.clipboard.writeText(txt); aviso = { txt: 'Resultados copiados. Pégalos en WhatsApp.' }; } catch { aviso = { txt }; }
+      render();
+    },
     async 'guardar-config'() {
       const r = await accion({ t: 'config', apuestas: $('#cfg-on').checked, monto: Number(String($('#cfg-monto').value).replace(/[^0-9]/g, '')), saldo: Number(String($('#cfg-saldo').value).replace(/[^0-9]/g, '')) });
       if (r && r.ok) { aviso = { txt: 'Apuestas guardadas.' }; render(); }
@@ -1116,6 +1172,8 @@
 
   document.addEventListener('click', (e) => {
     if (ignorarClick) { e.preventDefault(); return; }
+    if (menuAbierto && !e.target.closest('.menu-wrap')) { menuAbierto = false; armarSalir = false; render(); }
+    if (menuAbierto && e.target.closest('.menu [data-act]') && e.target.closest('[data-act]').dataset.act !== 'salir') { menuAbierto = false; setTimeout(render, 0); }
     const el = e.target.closest('[data-act]');
     if (!el) return;
     const fn = acciones[el.dataset.act];
@@ -1126,6 +1184,16 @@
     if (e.key === 'Escape') { $('#reglas').classList.remove('abierto'); $('#info-audio').classList.remove('abierto'); }
   });
   window.addEventListener('resize', () => { if (mesa && V && V.fase !== 'espera') render(); });
+
+  // ---------- sin zoom ----------
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+  document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  let ultimoToque = 0;
+  document.addEventListener('touchend', (e) => {
+    const ahora = Date.now();
+    if (ahora - ultimoToque < 320 && !e.target.closest('input, textarea')) e.preventDefault();
+    ultimoToque = ahora;
+  }, { passive: false });
 
   // ---------- PWA ----------
   let deferredPrompt = null;
