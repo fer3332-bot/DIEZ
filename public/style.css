@@ -391,3 +391,13 @@ input::placeholder { color: rgba(220, 255, 225, 0.45); }
 .obligar-chip { min-height: 30px; padding: 3px 12px; font-size: 13px; animation: aparece 0.25s ease-out; }
 @keyframes aparece { from { transform: scale(0.6); opacity: 0; } }
 @media (min-width: 900px) and (min-height: 520px) { .mio .carta.sm { --w: 38px; } }
+
+/* Me cierro */
+.rival.cerrado .cabeza, .rival.cerrado .juegos { opacity: 0.5; filter: grayscale(0.6); }
+.rival.cerrado .etq.off { opacity: 1; }
+.mano-wrap.cerrado .carta { filter: grayscale(0.7) brightness(0.75); }
+.chip.cerrarme { background: rgba(120, 20, 15, 0.55); box-shadow: inset 0 0 0 1.5px rgba(255, 180, 170, 0.5); }
+.mi-fila { flex-wrap: nowrap; }
+.mis-botones { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; margin-left: auto; }
+.mis-botones .chip { min-height: 32px; padding: 3px 12px; }
+@media (min-width: 900px) and (min-height: 520px) { .mio .mis-botones { flex-direction: row; align-items: center; margin-left: 0; } }

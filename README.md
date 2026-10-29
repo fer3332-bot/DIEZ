@@ -69,4 +69,6 @@ Sin estas variables el juego funciona igual; solo el audio puede fallar en algun
 - En el plan gratis de Render, el servidor se duerme tras 15 minutos sin uso. La primera vez que alguien abre la app después de eso puede tardar hasta un minuto en cargar. Mientras haya gente en una mesa, la app lo mantiene despierto.
 - Las mesas se guardan en memoria. Si el servidor se duerme o se reinicia, las mesas abiertas se pierden y hay que crear una nueva.
 - El audio solo funciona con la app abierta en pantalla. iPhone y Android lo cortan cuando la app pasa a segundo plano.
-- No hay reloj para quien está conectado. Si alguien pierde la señal cuando le toca, a los 5 segundos pasa solo. Puede volver a entrar con el mismo código y recupera sus cartas.
+- No hay reloj para quien está conectado. Si alguien pierde la señal cuando le toca, a los 5 segundos se cierra y el juego sigue sin él (su apuesta queda en el pozo). Puede volver a entrar con el mismo código para mirar.
+- **Me cierro:** cualquier jugador puede cerrarse en una partida; la ve, sigue en la apuesta y las cartas pasan al siguiente.
+- **Audio:** el botón 🔊 muestra con cuántos estás conectado y el estado con cada uno.

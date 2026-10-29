@@ -27,6 +27,7 @@
   let aviso = null;
   let enviando = false;
   let armarSalir = false;
+  let armarCierre = false, timerCierre = null;
   const ui = { modo: 'idle', sel: [], ext: null, des: null, pago: null, orden: leer('orden') || 'palo', clave: '' };
   let miOrden = leer('miorden') || [];
 
@@ -257,7 +258,15 @@
     let mic = '';
     if (enMesa) {
       if (!Voz.on) mic = `<button class="chip" data-act="voz" aria-label="Entrar al audio de la mesa">${ICON.micOff}<span class="lbl">Audio</span></button>`;
-      else mic = `<button class="chip ${Voz.mudo ? 'mudo' : 'activo'}" data-act="mudo" aria-label="${Voz.mudo ? 'Activar micrófono' : 'Silenciar micrófono'}">${Voz.mudo ? ICON.micOff + '<span class="lbl">Silencio</span>' : ICON.mic + '<span class="lbl">Mic</span>'}</button><button class="chip" data-act="voz-salir" aria-label="Salir del audio">${ICON.cerrar}</button>`;
+      else {
+        const otros = V.seats.filter((s, i) => i !== V.yo && s.voz && s.conectado);
+        const ok = otros.filter((s) => (Voz.info.get(s.vid) || {}).estado === 'conectado').length;
+        mic = (Voz.micCortado ? `<button class="chip mudo" data-act="reactivar-mic">${ICON.micOff}<span class="lbl">Reactivar mic</span></button>` :
+          `<button class="chip ${Voz.mudo ? 'mudo' : 'activo'}" data-act="mudo" aria-label="${Voz.mudo ? 'Activar micrófono' : 'Silenciar micrófono'}">${Voz.mudo ? ICON.micOff + '<span class="lbl">Silenciado</span>' : ICON.mic + '<span class="lbl">Mic abierto</span>'}</button>`) +
+          (Voz.bloqueado ? `<button class="chip mudo" data-act="destrabar">Toca para oír</button>` : '') +
+          `<button class="chip ${otros.length && ok < otros.length ? 'mudo' : ''}" data-act="estado-audio" aria-label="Estado del audio">🔊 ${ok}/${otros.length}</button>` +
+          `<button class="chip" data-act="voz-salir" aria-label="Salir del audio">${ICON.cerrar}</button>`;
+      }
     }
     return `<div class="barra">
       <span class="chip codigo">${esc(mesa)}</span>
@@ -330,13 +339,14 @@
     let dorsos = '';
     for (let k = 0; k < n; k++) dorsos += dorso('', '', `style="left:${k * 5}px;transform:rotate(${(k - (n - 1) / 2) * 5}deg)"`);
     const etq =
+      (s.cerrado ? '<span class="etq off">se cerró</span>' : '') +
       (i === V.dealer ? '<span class="etq">reparte</span>' : '') +
       (V.fase === 'cambio' ? `<span class="etq">${s.cambioListo ? 'listo' : 'eligiendo'}</span>` : '') +
       (!s.conectado ? '<span class="etq off">sin señal</span>' : '');
     // Botón para obligar a este jugador si pasó la carta que está en la mesa
-    const puedeObligar = V.fase === 'juego' && V.offer && V.yo >= 0 && (V.offer.pasaron || []).includes(i) && !(ui.modo !== 'idle' && V.offer.to === V.yo);
+    const puedeObligar = V.fase === 'juego' && V.offer && V.yo >= 0 && !s.cerrado && !(V.seats[V.yo] || {}).cerrado && (V.offer.pasaron || []).includes(i) && !(ui.modo !== 'idle' && V.offer.to === V.yo);
     const obligar = puedeObligar ? `<button class="chip rojo obligar-chip" data-act="obligar" data-seat="${i}" ${enviando ? 'disabled' : ''} aria-label="Obligar a ${esc(s.name)} a tomar la carta">Obligar</button>` : '';
-    return `<div class="rival p-${pos}">
+    return `<div class="rival p-${pos} ${s.cerrado && V.fase !== 'fin' ? 'cerrado' : ''}">
       <div class="cabeza" data-anchor="seat-${i}">
         <div class="fila-av">${avatar(i, tamAvatarRival())}<div class="abanico-dorsos" style="--n:${Math.max(1, n)}">${dorsos}<b>${s.cartas}</b></div></div>
         <div class="datos"><span class="etq-nombre">${esc(s.name)}</span>${saldoChip(s)}${etq}</div>
@@ -357,10 +367,14 @@
     let manoSeleccionable = false;
     let juegosToc = false;
 
+    const yoCerrado = yo >= 0 && V.seats[yo].cerrado && (V.fase === 'cambio' || V.fase === 'juego');
+    const siguienteActivo = (i) => { for (let k = 1; k <= n; k++) { const j = (i + k) % n; if (!V.seats[j].cerrado) return j; } return i; };
     if (V.fase === 'cambio') {
-      const dest = yo >= 0 ? nom((yo + 1) % n) : '';
+      const dest = yo >= 0 ? nom(siguienteActivo(yo)) : '';
       textoMesa = 'Carta de cambio: cada quien pasa 1 al siguiente';
-      if (yo >= 0 && !V.miCambio) {
+      if (yoCerrado) {
+        pista = 'Te cerraste: estás viendo la partida';
+      } else if (yo >= 0 && !V.miCambio) {
         manoSeleccionable = true;
         pista = `Elige la carta que le pasas a ${dest}`;
         botones = `<button class="btn" data-act="pasar-cambio" ${!ui.pago || enviando ? 'disabled' : ''}>${ui.pago ? 'Pasarle el ' + R.cardName(ui.pago) : 'Elige una carta'}</button>`;
@@ -416,6 +430,9 @@
       }
     }
 
+    const vivosN = V.seats.filter((x) => !x.cerrado).length;
+    if (vivosN === 1 && V.fase === 'juego') textoMesa += !yoCerrado && yo >= 0 ? ' · juegas solo contra el mazo' : ` · ${nom(V.seats.findIndex((x) => !x.cerrado))} juega solo`;
+    if (yoCerrado && V.fase === 'juego') { pista = 'Te cerraste: estás viendo la partida. Tu apuesta sigue en el pozo.'; botones = ''; manoSeleccionable = false; juegosToc = false; }
     const accionesHtml = yo >= 0 && V.fase !== 'fin' && (pista || botones)
       ? `<div class="acciones-barra">${pista ? `<div class="pista">${pista}</div>` : ''}${botones ? `<div class="botones">${botones}</div>` : ''}</div>`
       : ancho() && yo >= 0 ? '<div class="acciones-barra"></div>' : '';
@@ -466,7 +483,7 @@
 
     const juegosHtml = misJuegos.length
       ? misJuegos.map((m, i) => miJuego(m, i, juegosToc)).join('')
-      : '<span class="vacio">Aquí van tus juegos bajados</span>';
+      : '<span class="vacio">Tus juegos bajados</span>';
 
     const mio = yo >= 0
       ? `<section class="mio">
@@ -475,9 +492,12 @@
             <div class="mi-info"><span class="etq-nombre">${nom(yo)}</span>${saldoChip(V.seats[yo])}</div>
             ${ancho() && V.fase !== 'fin' ? `<button class="chip orden" data-act="orden" title="Cambiar orden. También puedes arrastrar las cartas.">Orden: ${{ palo: 'palo', numero: 'número', libre: 'a mi gusto' }[ui.orden] || 'palo'}</button>` : ''}</div>
             <div class="misjuegos" data-anchor="melds-${yo}">${juegosHtml}</div>
+            <div class="mis-botones">
+            ${(V.fase === 'cambio' || V.fase === 'juego') && !yoCerrado ? `<button class="chip ${armarCierre ? 'mudo' : 'cerrarme'}" data-act="me-cierro">${armarCierre ? '¿Seguro? Toca otra vez' : 'Me cierro'}</button>` : ''}
             ${!ancho() && V.fase !== 'fin' ? `<button class="chip orden" data-act="orden" title="Cambiar orden. También puedes arrastrar las cartas.">Orden: ${{ palo: 'palo', numero: 'número', libre: 'a mi gusto' }[ui.orden] || 'palo'}</button>` : ''}
+            </div>
           </div>
-          <div class="mano-wrap" data-anchor="seat-${yo}">
+          <div class="mano-wrap ${yoCerrado ? 'cerrado' : ''}" data-anchor="seat-${yo}">
             ${V.fase !== 'fin' ? manoHtml : ''}
           </div>
           ${ancho() ? accionesHtml : ''}
@@ -524,15 +544,15 @@
       const g = V.win;
       html += `<div>${avatar(g.seat, 64)}</div>
         <h2>${g.seat === V.yo ? '¡Ganaste!' : `Ganó ${nom(g.seat)}`}</h2>
-        <div style="color:var(--tenue);font-weight:700">con el ${R.cardName(g.carta)}${!g.premio && g.apuesta > 1 ? ' · iba ' + apuestaTxt(g.apuesta).replace('Va ', '') : ''}</div>
+        <div style="color:var(--tenue);font-weight:700">${g.porCierre ? 'porque todos los demás se cerraron' : `con el ${R.cardName(g.carta)}`}${!g.premio && g.apuesta > 1 ? ' · iba ' + apuestaTxt(g.apuesta).replace('Va ', '') : ''}</div>
         ${g.premio ? `<div class="premio">+${lps(g.premio)}</div>` : ''}
         <div class="juegos">${g.melds.map((m) => juego(m, 'sm')).join('')}</div>`;
     } else {
-      html += `<h2>Se acabó el mazo</h2><div style="font-weight:700">Nadie completó sus 10 cartas.</div>
+      html += `<h2>${esc(V.motivoFin || 'Se acabó el mazo')}</h2><div style="font-weight:700">Nadie ganó esta partida.</div>
         <div class="premio" style="background:linear-gradient(#ff9a8f,#c8201b);color:#fff">${V.pozo ? `Pozo de ${lps(V.pozo)} · ` : ''}${apuestaTxt(V.apuesta).toLowerCase()}</div>`;
     }
     const otros = V.seats.map((s, i) => ({ s, i })).filter(({ i }) => !V.win || i !== V.win.seat);
-    html += `<div class="otras">${otros.map(({ s, i }) => `<div>${avatar(i, 28)}<b>${esc(s.name)}</b>${saldoChip(s)}
+    html += `<div class="otras">${otros.map(({ s, i }) => `<div>${avatar(i, 28)}<b>${esc(s.name)}</b>${s.cerrado ? '<span class="etq off">se cerró</span>' : ''}${saldoChip(s)}
       ${s.melds.map((m) => juego(m, 'xs')).join('')} ${(s.mano || []).map((c) => carta(c, 'xs')).join('')}</div>`).join('')}</div>`;
     html += soyAnf
       ? `<div style="margin-top:14px"><button class="btn" data-act="repartir" ${V.seats.length < 2 || enviando ? 'disabled' : ''}>Repartir otra</button></div>`
@@ -647,6 +667,9 @@
             mostrarOferta();
           } else if (e.t === 'muerta') {
             await volar(rect('[data-anchor="offer"]'), rect('[data-anchor="discard"]'), { c: e.c, dur: 380, tam: tamOferta(), finTam: 40, rot: 8 });
+          } else if (e.t === 'cierra') {
+            burbuja(anclaSeat(e.seat), 'Me cierro');
+            await espera(200);
           } else if (e.t === 'pasa') {
             burbuja(anclaSeat(e.seat), 'Paso');
             await espera(160);
@@ -668,8 +691,14 @@
   }
 
   // ---------- audio (micrófono abierto entre la mesa) ----------
+  // Conexión directa entre teléfonos (WebRTC). Cada oferta/respuesta viaja en UN solo mensaje
+  // con todas las rutas de red incluidas, para que no se pierdan ni lleguen desordenadas.
   const Voz = {
-    on: false, mudo: false, stream: null, pcs: new Map(), ice: null, ctx: null, niveles: new Map(),
+    on: false, mudo: false, stream: null, ice: null,
+    pcs: new Map(),      // vid -> RTCPeerConnection
+    info: new Map(),     // vid -> {estado, bytes, recibe, nivel}
+    bloqueado: false,    // el navegador no dejó reproducir el sonido todavía
+    micCortado: false,
 
     async entrar() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
@@ -682,18 +711,44 @@
         aviso = { txt: 'No se pudo usar el micrófono. Da permiso de micrófono a la app en los ajustes del teléfono.', error: true };
         return render();
       }
+      this.vigilarMic();
       if (!this.ice) {
-        try { this.ice = (await (await fetch('/api/ice')).json()).iceServers; } catch { this.ice = [{ urls: 'stun:stun.l.google.com:19302' }]; }
+        try { this.ice = (await (await fetch('/api/ice', { cache: 'no-store' })).json()).iceServers; } catch { this.ice = [{ urls: 'stun:stun.l.google.com:19302' }]; }
       }
-      try {
-        this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
-        await this.ctx.resume();
-      } catch {}
       this.on = true;
       this.mudo = false;
-      if (V && V.yo >= 0) this.medir(V.seats[V.yo].vid, this.stream, true);
+      this.micCortado = false;
       await accion({ t: 'voz', on: true, mudo: false }, true);
       this.sync();
+      render();
+    },
+
+    vigilarMic() {
+      const t = this.stream && this.stream.getAudioTracks()[0];
+      if (!t) return;
+      const cortado = () => { if (this.on) { this.micCortado = true; render(); } };
+      t.onended = cortado;
+      t.onmute = cortado;
+      t.onunmute = () => { this.micCortado = false; render(); };
+    },
+
+    // Volver a pedir el micrófono y ponerlo en todas las conexiones (si el teléfono lo cortó)
+    async reactivarMic() {
+      try {
+        const nuevo = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+        const pista = nuevo.getAudioTracks()[0];
+        pista.enabled = !this.mudo;
+        for (const pc of this.pcs.values()) {
+          const sender = pc.getSenders().find((x) => x.track === null || (x.track && x.track.kind === 'audio'));
+          if (sender) await sender.replaceTrack(pista);
+        }
+        if (this.stream) this.stream.getTracks().forEach((x) => x.stop());
+        this.stream = nuevo;
+        this.micCortado = false;
+        this.vigilarMic();
+      } catch {
+        aviso = { txt: 'No se pudo reactivar el micrófono. Revisa el permiso en los ajustes.', error: true };
+      }
       render();
     },
 
@@ -703,7 +758,7 @@
       for (const vid of [...this.pcs.keys()]) this.cerrar(vid);
       if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
-      this.niveles.clear();
+      this.info.clear();
       $('#audios').innerHTML = '';
       if (!silencioso && mesa) accion({ t: 'voz', on: false }, true);
       render();
@@ -717,19 +772,21 @@
       render();
     },
 
+    // Con quién debo estar conectado; el de id menor llama, el mayor contesta
     sync() {
       if (!this.on || !V || V.yo < 0) return;
       const yo = V.seats[V.yo].vid;
       const quieren = new Set(V.seats.filter((s, i) => i !== V.yo && s.voz && s.conectado).map((s) => s.vid));
-      for (const vid of [...this.pcs.keys()]) if (!quieren.has(vid)) this.cerrar(vid);
-      for (const vid of quieren) if (!this.pcs.has(vid) && yo < vid) this.llamar(vid);
+      for (const vid of [...this.pcs.keys()]) if (!quieren.has(vid)) { this.cerrar(vid); this.info.delete(vid); }
+      for (const vid of quieren) {
+        if (!this.info.has(vid)) this.info.set(vid, { estado: 'conectando', bytes: 0, recibe: false, nivel: 0 });
+        if (!this.pcs.has(vid) && yo < vid) this.llamar(vid);
+      }
     },
 
     nueva(vid) {
       const pc = new RTCPeerConnection({ iceServers: this.ice });
-      pc._pend = [];
-      this.stream.getTracks().forEach((t) => pc.addTrack(t, this.stream));
-      pc.onicecandidate = (e) => { if (e.candidate) this.enviar(vid, { cand: e.candidate }); };
+      this.stream.getAudioTracks().forEach((t) => pc.addTrack(t, this.stream));
       pc.ontrack = (e) => {
         const st = e.streams[0] || new MediaStream([e.track]);
         let a = document.getElementById('au-' + vid);
@@ -741,24 +798,49 @@
           $('#audios').appendChild(a);
         }
         a.srcObject = st;
-        a.play().catch(() => {});
-        this.medir(vid, st);
+        this.reproducir(a);
       };
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'failed') {
-          this.cerrar(vid);
-          setTimeout(() => this.sync(), 1500);
-        }
+        const inf = this.info.get(vid) || {};
+        const st = pc.connectionState;
+        inf.estado = st === 'connected' ? 'conectado' : st === 'failed' ? 'falló' : st === 'disconnected' ? 'reconectando' : 'conectando';
+        this.info.set(vid, inf);
+        if (st === 'failed') this.reintentar(vid, pc);
+        if (st === 'disconnected') setTimeout(() => { if (this.pcs.get(vid) === pc && pc.connectionState === 'disconnected') this.reintentar(vid, pc); }, 6000);
+        render();
       };
       this.pcs.set(vid, pc);
       return pc;
+    },
+
+    reintentar(vid, pc) {
+      if (this.pcs.get(vid) !== pc) return;
+      this.cerrar(vid);
+      setTimeout(() => this.sync(), 1500);
+    },
+
+    reproducir(a) {
+      const p = a.play();
+      if (p && p.catch) p.catch(() => { this.bloqueado = true; render(); });
+    },
+
+    // Esperar a reunir todas las rutas de red (máx. 4 s) para mandarlas en un solo mensaje
+    esperarRutas(pc) {
+      if (pc.iceGatheringState === 'complete') return Promise.resolve();
+      return new Promise((ok) => {
+        const fin = () => { clearTimeout(t); pc.removeEventListener('icegatheringstatechange', ver); ok(); };
+        const ver = () => { if (pc.iceGatheringState === 'complete') fin(); };
+        const t = setTimeout(fin, 4000);
+        pc.addEventListener('icegatheringstatechange', ver);
+      });
     },
 
     async llamar(vid) {
       const pc = this.nueva(vid);
       try {
         await pc.setLocalDescription(await pc.createOffer());
-        this.enviar(vid, { sdp: pc.localDescription });
+        await this.esperarRutas(pc);
+        if (this.pcs.get(vid) === pc) this.enviar(vid, { sdp: pc.localDescription });
       } catch (e) { console.warn(e); }
     },
 
@@ -768,7 +850,6 @@
       this.pcs.delete(vid);
       const a = document.getElementById('au-' + vid);
       if (a) a.remove();
-      this.niveles.delete(vid);
     },
 
     enviar(to, data) {
@@ -776,59 +857,68 @@
     },
 
     async recibir({ from, data }) {
-      if (!this.on || !data || !from) return;
+      if (!this.on || !data || !from || !data.sdp) return;
       try {
-        if (data.sdp && data.sdp.type === 'offer') {
+        if (data.sdp.type === 'offer') {
           this.cerrar(from);
           const pc = this.nueva(from);
           await pc.setRemoteDescription(data.sdp);
-          for (const c of pc._pend) await pc.addIceCandidate(c);
-          pc._pend = [];
           await pc.setLocalDescription(await pc.createAnswer());
-          this.enviar(from, { sdp: pc.localDescription });
-        } else if (data.sdp && data.sdp.type === 'answer') {
+          await this.esperarRutas(pc);
+          if (this.pcs.get(from) === pc) this.enviar(from, { sdp: pc.localDescription });
+        } else if (data.sdp.type === 'answer') {
           const pc = this.pcs.get(from);
-          if (pc && pc.signalingState === 'have-local-offer') {
-            await pc.setRemoteDescription(data.sdp);
-            for (const c of pc._pend) await pc.addIceCandidate(c);
-            pc._pend = [];
-          }
-        } else if (data.cand) {
-          const pc = this.pcs.get(from);
-          if (!pc) return;
-          if (pc.remoteDescription) await pc.addIceCandidate(data.cand);
-          else pc._pend.push(data.cand);
+          if (pc && pc.signalingState === 'have-local-offer') await pc.setRemoteDescription(data.sdp);
         }
       } catch (e) { console.warn(e); }
     },
 
-    medir(vid, stream, propio) {
-      if (!this.ctx) return;
-      try {
-        const src = this.ctx.createMediaStreamSource(stream);
-        const an = this.ctx.createAnalyser();
-        an.fftSize = 512;
-        src.connect(an);
-        this.niveles.set(vid, { an, buf: new Uint8Array(an.fftSize), propio, suave: 0 });
-      } catch {}
+    // Quién está hablando y si llega sonido de cada uno (sin usar AudioContext: más estable en iPhone)
+    async medir() {
+      if (!this.on) return;
+      let propio = 0;
+      for (const [vid, pc] of this.pcs) {
+        try {
+          const st = await pc.getStats();
+          const inf = this.info.get(vid) || {};
+          st.forEach((r) => {
+            if (r.type === 'inbound-rtp' && (r.kind === 'audio' || r.mediaType === 'audio')) {
+              inf.recibe = r.bytesReceived > (inf.bytes || 0);
+              inf.bytes = r.bytesReceived;
+              inf.nivel = r.audioLevel || 0;
+            }
+            if (r.type === 'media-source' && r.kind === 'audio' && r.audioLevel !== undefined) propio = Math.max(propio, r.audioLevel);
+          });
+          this.info.set(vid, inf);
+        } catch {}
+      }
+      const pintar = (vid, habla) => document.querySelectorAll(`[data-vid="${vid}"]`).forEach((el) => el.classList.toggle('habla', habla));
+      for (const [vid, inf] of this.info) pintar(vid, (inf.nivel || 0) > 0.03);
+      if (V && V.yo >= 0) pintar(V.seats[V.yo].vid, propio > 0.03 && !this.mudo);
     },
   };
+  setInterval(() => Voz.medir(), 400);
+  // Cualquier toque en la pantalla destraba el sonido si el navegador lo había bloqueado
+  document.addEventListener('pointerdown', () => {
+    if (!Voz.on) return;
+    document.querySelectorAll('#audios audio').forEach((a) => { if (a.paused) a.play().then(() => { if (Voz.bloqueado) { Voz.bloqueado = false; render(); } }).catch(() => {}); });
+  });
 
-  // Aro verde en la foto de quien está hablando
-  (function bucleHabla() {
-    if (Voz.on) {
-      for (const [vid, n] of Voz.niveles) {
-        n.an.getByteTimeDomainData(n.buf);
-        let sum = 0;
-        for (let k = 0; k < n.buf.length; k++) { const v = (n.buf[k] - 128) / 128; sum += v * v; }
-        const rms = Math.sqrt(sum / n.buf.length);
-        n.suave = n.suave * 0.8 + rms * 0.2;
-        const habla = n.suave > 0.025 && !(n.propio && Voz.mudo);
-        document.querySelectorAll(`[data-vid="${vid}"]`).forEach((el) => el.classList.toggle('habla', habla));
-      }
-    }
-    requestAnimationFrame(bucleHabla);
-  })();
+  function estadoAudioHtml() {
+    if (!V) return '';
+    const filas = V.seats.map((s, i) => {
+      if (i === V.yo) return `<li><b>${esc(s.name)} (tú)</b>: ${Voz.on ? (Voz.micCortado ? 'el micrófono se cortó' : Voz.mudo ? 'silenciado' : 'micrófono abierto') : 'fuera del audio'}</li>`;
+      if (!s.voz) return `<li><b>${esc(s.name)}</b>: no ha entrado al audio</li>`;
+      const inf = Voz.info.get(s.vid);
+      if (!Voz.on) return `<li><b>${esc(s.name)}</b>: en el audio (entra tú también)</li>`;
+      const est = inf ? inf.estado : 'conectando';
+      const llega = inf && inf.recibe ? ' · llega su sonido' : est === 'conectado' ? ' · todavía no llega su sonido' : '';
+      return `<li><b>${esc(s.name)}</b>: ${est}${s.mudo ? ' (silenciado)' : ''}${llega}</li>`;
+    }).join('');
+    return `<h2>Estado del audio</h2><ul>${filas}</ul>
+      <p>Si alguien se queda en "conectando" o "falló", casi siempre es la red de datos móviles: el servidor necesita el servicio TURN (ver la guía). Prueben también con Wi‑Fi.</p>
+      <p>Si no oyes a nadie, toca la pantalla una vez y revisa que el teléfono no esté en silencio.</p>`;
+  }
 
   // ---------- foto de perfil ----------
   const archivo = $('#archivo-foto');
@@ -932,6 +1022,11 @@
     'pasar-cambio'() { if (ui.pago) accion({ t: 'cambio', c: ui.pago }); },
     tomar() { ui.modo = 'elegir'; ui.sel = []; ui.ext = null; ui.des = null; render(); },
     voltear() { accion({ t: 'voltear' }); },
+    'me-cierro'() {
+      if (!armarCierre) { armarCierre = true; render(); clearTimeout(timerCierre); timerCierre = setTimeout(() => { armarCierre = false; render(); }, 3500); return; }
+      armarCierre = false; clearTimeout(timerCierre);
+      accion({ t: 'cerrar' });
+    },
     obligar(el) { accion({ t: 'obligar', seat: Number(el.dataset.seat) }); },
     'pagar-obligado'() { if (ui.pago) accion({ t: 'pagar', c: ui.pago }); },
     cancelar() { ui.modo = 'idle'; ui.sel = []; ui.ext = null; ui.des = null; render(); },
@@ -947,6 +1042,10 @@
     voz() { Voz.entrar(); },
     'voz-salir'() { Voz.salir(); },
     mudo() { Voz.alternarMudo(); },
+    'reactivar-mic'() { Voz.reactivarMic(); },
+    destrabar() { document.querySelectorAll('#audios audio').forEach((a) => a.play().catch(() => {})); Voz.bloqueado = false; render(); },
+    'estado-audio'() { $('#info-audio .contenido').innerHTML = estadoAudioHtml(); $('#info-audio').classList.add('abierto'); },
+    'cerrar-info'() { $('#info-audio').classList.remove('abierto'); },
     async instalar() {
       if (!deferredPrompt) return;
       deferredPrompt.prompt();
@@ -1020,7 +1119,7 @@
   });
   document.addEventListener('keydown', (e) => {
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-act][role="button"]')) { e.preventDefault(); e.target.click(); }
-    if (e.key === 'Escape') $('#reglas').classList.remove('abierto');
+    if (e.key === 'Escape') { $('#reglas').classList.remove('abierto'); $('#info-audio').classList.remove('abierto'); }
   });
   window.addEventListener('resize', () => { if (mesa && V && V.fase !== 'espera') render(); });
 

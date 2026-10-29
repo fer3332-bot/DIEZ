@@ -21,6 +21,7 @@
 <body>
   <main id="app"></main>
   <div id="audios" hidden></div>
+  <div class="modal" id="info-audio" role="dialog" aria-modal="true"><div class="hoja"><div class="contenido"></div><button class="btn ancho" data-act="cerrar-info">Listo</button></div></div>
   <input type="file" id="archivo-foto" accept="image/*" hidden>
   <div class="modal" id="reglas" role="dialog" aria-modal="true" aria-labelledby="reglas-titulo">
     <div class="hoja">
@@ -51,13 +52,20 @@
         <li>No hay reloj: si alguien se tarda, se le recuerda de palabra.</li>
         <li>Los juegos que te salieron en la repartida se quedan ocultos en tu mano hasta que ganes.</li>
       </ul>
+      <h3>Me cierro</h3>
+      <ul>
+        <li>Si no te salió buen juego, toca <b>"Me cierro"</b>: no juegas esta partida, pero la ves y tu apuesta se queda en el pozo. Las cartas ya no pasan por ti, sino al siguiente jugador.</li>
+        <li>Si alguien se queda sin señal cuando le toca jugar, a los 5 segundos se cierra solo y el juego sigue sin él.</li>
+        <li>Si todos se cierran menos uno, ese jugador sigue solo contra el mazo: si completa sus 10 cartas gana el pozo; si se acaba el mazo, nadie gana y la próxima va doble (o triple…). Si se cierran todos, también va doble.</li>
+        <li>En la siguiente partida todos vuelven a jugar.</li>
+      </ul>
       <h3>Final</h3>
       <ul>
         <li>Gana quien completa las 10 cartas en juegos al tomar una carta. Al ganar no se paga.</li>
         <li>Si ya tienes tus 9 cartas expuestas, la carta 10 tiene que salir del <b>mazo</b>: no puedes ganar con el pago de otro jugador.</li>
         <li>Si se acaba el mazo y nadie gana, la próxima partida <b>va doble</b>, luego triple, y así hasta que alguien gane.</li>
         <li>Si la mesa juega con apuestas, cada jugador pone la apuesta en el pozo al repartir. Quien gana se lleva todo el pozo. Si nadie gana, el pozo se queda y en la siguiente todos ponen otra vez. Es dinero de juego, no real.</li>
-        <li>Si alguien pierde la conexión y le toca a él, a los 5 segundos pasa solo (o se paga / voltea por él). Puede volver a entrar con el mismo código y recupera sus cartas.</li>
+        <li>Si alguien pierde la conexión y le toca a él, a los 5 segundos se cierra (ver "Me cierro"). Puede volver a entrar con el mismo código para mirar.</li>
       </ul>
       <h3>Tu mano</h3>
       <p>Arrastra las cartas de tu mano hacia los lados para ordenarlas a tu gusto. El botón "Orden" cambia entre por palo, por número y tu orden.</p>
