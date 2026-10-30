@@ -196,6 +196,11 @@ class Mesa {
     return null;
   }
 
+  // Jugadores "tendidos": siguen jugando y tienen todo expuesto, esperando la carta 10
+  tendidos(excepto) {
+    return this.seats.filter((s, i) => i !== excepto && !s.cerrado && s.hand.length === 0 && s.melds.length).map((s) => ({ name: s.name, melds: s.melds }));
+  }
+
   // ---------- orden de juego (se salta a quien se cerró) ----------
   activos() {
     return this.seats.map((s, i) => i).filter((i) => !this.seats[i].cerrado);
@@ -294,7 +299,7 @@ class Mesa {
     if (s.cerrado) return 'Ya te cerraste';
     // Si debía pagar porque lo obligaron, primero se paga con una carta permitida
     if (this.pagoPendiente && this.pagoPendiente.seat === seat) {
-      const ok = R.cartasPagables(s.melds, s.hand);
+      const ok = R.cartasPagables(s.melds, s.hand, this.tendidos(seat));
       this.pagar(seat, ok[crypto.randomInt(ok.length)]);
     }
     s.cerrado = true;
@@ -352,7 +357,7 @@ class Mesa {
     // Pago después de que te obligaron a tomar
     if (a.t === 'pagar') {
       if (!this.pagoPendiente || this.pagoPendiente.seat !== seat) return 'No tienes un pago pendiente';
-      const errPago = R.errorPago(s.melds, s.hand, a.c);
+      const errPago = R.errorPago(s.melds, s.hand, a.c, this.tendidos(seat));
       if (errPago) return errPago;
       this.addLog(`${s.name} pagó con ${R.cardName(a.c)}`);
       this.pagar(seat, a.c);
@@ -369,10 +374,17 @@ class Mesa {
       if (!x || obj === seat) return 'Elige a otro jugador';
       if (!o.pasaron.includes(obj)) return `${x.name} no ha pasado esta carta`;
       if (x.cerrado) return `${x.name} se cerró: ya no juega esta partida`;
-      if (!x.hand.length) return `${x.name} ya tiene todo expuesto: no puede pagar`;
       const i = x.melds.findIndex((m) => R.isMeld([...m, o.c]));
       if (i < 0) return `El ${R.cardName(o.c)} no le sirve a ${x.name} en sus juegos de la mesa`;
-      x.melds[i] = R.sortMeld([...x.melds[i], o.c]);
+      const nuevos = x.melds.map((m, k) => (k === i ? R.sortMeld([...m, o.c]) : m));
+      const gana = R.winArrangement(nuevos, x.hand);
+      if (!gana && !x.hand.length) return `${x.name} ya tiene todo expuesto: no puede pagar`;
+      x.melds = nuevos;
+      if (gana) {
+        this.addLog(`${s.name} obligó a ${x.name} a tomar el ${R.cardName(o.c)}… ¡y con eso completó sus 10!`);
+        this.ganar(obj, gana, o.c);
+        return null;
+      }
       this.addLog(`${s.name} obligó a ${x.name} a tomar el ${R.cardName(o.c)}`);
       this.ev('toma', { seat: obj, c: o.c, obligado: true });
       this.offer = null;
@@ -397,14 +409,9 @@ class Mesa {
       return null;
     }
 
-    // Con las 9 cartas expuestas, la carta 10 tiene que salir del mazo
-    const todoExpuesto = s.hand.length === 0;
-    const reglaDiez = 'Con todo expuesto, tu carta 10 tiene que salir del mazo, no del pago de otro jugador';
-
     if (a.t === 'ganar') {
       const arr = R.winArrangement(s.melds, [...s.hand, o.c]);
       if (!arr) return 'Todavía no puedes ganar con esa carta';
-      if (todoExpuesto && o.src === 'pago') return reglaDiez;
       this.ganar(seat, arr, o.c);
       return null;
     }
@@ -414,14 +421,13 @@ class Mesa {
       if (res.err) return res.err;
       const arr = R.winArrangement(res.melds, res.hand);
       if (arr) {
-        if (todoExpuesto && o.src === 'pago') return reglaDiez;
         s.melds = res.melds;
         s.hand = res.hand;
         this.ganar(seat, arr, o.c);
         return null;
       }
       if (!res.hand.includes(a.pay)) return 'Elige con qué carta pagas';
-      const errPago = R.errorPago(res.melds, res.hand, a.pay);
+      const errPago = R.errorPago(res.melds, res.hand, a.pay, this.tendidos(seat));
       if (errPago) return errPago;
       s.melds = res.melds;
       s.hand = res.hand;

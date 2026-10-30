@@ -447,3 +447,4 @@ html, body { overflow-x: hidden; }
 .dif { font-size: 13px; font-weight: 900; padding: 0 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.15); }
 .dif.gana { background: #3fbf63; color: #fff; }
 .dif.pierde { background: #c8201b; color: #fff; }
+.etq.tendido { background: linear-gradient(#fff2b8, var(--oro)); color: #4a3305; }

@@ -54,13 +54,33 @@
     return out;
   }
 
-  /* ¿Se puede ganar? Las 10 cartas (juegos expuestos + mano) deben quedar
-     TODAS en combinaciones válidas. Los juegos expuestos no se separan, pero
-     pueden recibir cartas de la mano al ganar. Devuelve el arreglo de juegos o null. */
+  /* Formas de usar un juego expuesto al ganar: completo, o desmochado (se sacan cartas
+     y lo que queda sigue siendo juego válido). Las cartas sacadas quedan libres. */
+  function variantes(m) {
+    const out = [{ nucleos: [m.slice()], libres: [] }];
+    const r = m.map(rv);
+    if (r.every((x) => x === r[0])) {
+      if (m.length === 4) for (const c of m) out.push({ nucleos: [m.filter((x) => x !== c)], libres: [c] });
+      return out;
+    }
+    const sm = sortMeld(m);
+    const n = sm.length;
+    for (let i = 0; i < n; i++)
+      for (let j = i + 3; j <= n; j++) {
+        if (i === 0 && j === n) continue;
+        out.push({ nucleos: [sm.slice(i, j)], libres: [...sm.slice(0, i), ...sm.slice(j)] });
+      }
+    // una corrida larga partida en dos juegos
+    for (let k = 3; k <= n - 3; k++) out.push({ nucleos: [sm.slice(0, k), sm.slice(k)], libres: [] });
+    return out;
+  }
+
+  /* ¿Se puede ganar? Las 10 cartas (juegos expuestos + mano) deben quedar TODAS en
+     combinaciones válidas. Los juegos expuestos pueden recibir cartas de la mano y también
+     se pueden desmochar (sacarles cartas) si siguen siendo válidos. Devuelve los juegos o null. */
   function winArrangement(melds, hand) {
     const total = melds.reduce((a, m) => a + m.length, 0) + hand.length;
     if (total !== 10) return null;
-    const units = [...melds.map((m) => m.slice()), ...hand.map((c) => [c])];
     function solve(us) {
       if (!us.length) return [];
       const [first, ...rest] = us;
@@ -73,7 +93,17 @@
       }
       return null;
     }
-    return solve(units);
+    const opciones = melds.map(variantes);
+    const idx = melds.map(() => 0);
+    for (;;) {
+      const nucleos = [], libres = [];
+      opciones.forEach((ops, k) => { const v = ops[idx[k]]; nucleos.push(...v.nucleos.map((x) => x.slice())); libres.push(...v.libres); });
+      const res = solve([...nucleos, ...[...libres, ...hand].map((c) => [c])]);
+      if (res) return res;
+      let k = 0;
+      while (k < idx.length && ++idx[k] >= opciones[k].length) { idx[k] = 0; k++; }
+      if (k >= idx.length) return null;
+    }
   }
 
   /* Tomar la carta c: o se forma un juego nuevo con cartas de la mano (use, mínimo 2),
@@ -157,23 +187,33 @@
     return out;
   }
 
-  // No se puede pagar con una carta que encaja en uno de mis juegos expuestos.
-  // Si TODAS las cartas de la mano encajan, se permite cualquiera (para no trabar el juego).
+  // Al pagar NO se puede soltar:
+  //  · una carta que encaja en uno de MIS juegos expuestos;
+  //  · una carta que haría ganar a un jugador TENDIDO (todo expuesto esperando la carta 10).
+  // Si no queda otra opción, primero se permite la que hace ganar al tendido; si tampoco, cualquiera.
   function encajaEnJuegos(melds, c) {
     return melds.findIndex((m) => isMeld([...m, c]));
   }
-  function cartasPagables(melds, hand) {
-    const libres = hand.filter((c) => encajaEnJuegos(melds, c) < 0);
-    return libres.length ? libres : hand.slice();
+  function haceGanar(tendidos, c) {
+    return (tendidos || []).findIndex((t) => winArrangement(t.melds || t, [c]));
   }
-  function errorPago(melds, hand, c) {
+  function cartasPagables(melds, hand, tendidos) {
+    const noMia = hand.filter((c) => encajaEnJuegos(melds, c) < 0);
+    const libres = noMia.filter((c) => haceGanar(tendidos, c) < 0);
+    if (libres.length) return libres;
+    if (noMia.length) return noMia;
+    return hand.slice();
+  }
+  function errorPago(melds, hand, c, tendidos) {
     if (!hand.includes(c)) return 'Esa carta no está en tu mano';
-    if (cartasPagables(melds, hand).includes(c)) return null;
-    const m = melds[encajaEnJuegos(melds, c)];
-    return `No puedes pagar con el ${cardName(c)}: encaja en tu juego ${m.map(cardName).join(' ')}`;
+    if (cartasPagables(melds, hand, tendidos).includes(c)) return null;
+    const i = encajaEnJuegos(melds, c);
+    if (i >= 0) return `No puedes pagar con el ${cardName(c)}: encaja en tu juego ${melds[i].map(cardName).join(' ')}`;
+    const t = tendidos[haceGanar(tendidos, c)];
+    return `No puedes pagar con el ${cardName(c)}: haría ganar a ${t.name || 'un jugador tendido'}. Elige otra carta`;
   }
 
-  const api = { encajaEnJuegos, cartasPagables, errorPago, RANKS, SUITS, SYM, CODE_RE, rv, rankLabel, cardName, newDeck, isMeld, sortMeld, sortHand, winArrangement, applyTake, canUse, removible, opcionesDesmoche };
+  const api = { encajaEnJuegos, haceGanar, cartasPagables, errorPago, RANKS, SUITS, SYM, CODE_RE, rv, rankLabel, cardName, newDeck, isMeld, sortMeld, sortHand, winArrangement, applyTake, canUse, removible, opcionesDesmoche };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Reglas = api;
 })(typeof self !== 'undefined' ? self : this);

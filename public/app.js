@@ -350,6 +350,7 @@
     for (let k = 0; k < n; k++) dorsos += dorso('', '', `style="left:${k * 5}px;transform:rotate(${(k - (n - 1) / 2) * 5}deg)"`);
     const etq =
       (s.cerrado ? '<span class="etq off">se cerró</span>' : '') +
+      (!s.cerrado && V.fase === 'juego' && s.cartas === 0 && s.melds.length ? '<span class="etq tendido">tendido</span>' : '') +
       (i === V.dealer ? '<span class="etq">reparte</span>' : '') +
       (V.fase === 'cambio' ? `<span class="etq">${s.cambioListo ? 'listo' : 'eligiendo'}</span>` : '') +
       (!s.conectado ? '<span class="etq off">sin señal</span>' : '');
@@ -398,7 +399,7 @@
       textoMesa = pp.seat === yo ? `${nom(pp.por)} te obligó a tomar el ${R.cardName(pp.c)}` : `${nom(pp.por)} obligó a ${nom(pp.seat)} a tomar el ${R.cardName(pp.c)}`;
       if (pp.seat === yo) {
         manoSeleccionable = true;
-        const errP = ui.pago ? R.errorPago(misJuegos, V.mano, ui.pago) : null;
+        const errP = ui.pago ? R.errorPago(misJuegos, V.mano, ui.pago, tendidos()) : null;
         pista = `Te obligaron: paga con una carta de tu mano` + (errP ? `<br><span class="err">${esc(errP)}</span>` : '');
         botones = `<button class="btn rojo" data-act="pagar-obligado" ${!ui.pago || errP || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button>`;
       } else pista = `Esperando que ${nom(pp.seat)} pague`;
@@ -433,7 +434,7 @@
         } else if (ui.modo === 'pagar') {
           manoSeleccionable = true;
           const tras = R.applyTake(misJuegos, V.mano, o.c, ui.sel, ui.ext, ui.des);
-          const errP = ui.pago && !tras.err ? R.errorPago(tras.melds, tras.hand, ui.pago) : null;
+          const errP = ui.pago && !tras.err ? R.errorPago(tras.melds, tras.hand, ui.pago, tendidos()) : null;
           pista = `Ahora paga: elige la carta que vas a soltar` + (errP ? `<br><span class="err">${esc(errP)}</span>` : '');
           botones = `<button class="btn rojo" data-act="pagar" ${!ui.pago || errP || enviando ? 'disabled' : ''}>${ui.pago ? 'Pagar con ' + R.cardName(ui.pago) : 'Elige tu pago'}</button><button class="btn cielo" data-act="atras">Atrás</button>`;
         }
@@ -525,6 +526,11 @@
       ${avisoHtml}
       ${mio}
     `;
+  }
+
+  // Otros jugadores tendidos (todo expuesto, esperando la carta 10)
+  function tendidos() {
+    return V.seats.filter((x, i) => i !== V.yo && !x.cerrado && x.cartas === 0 && x.melds.length).map((x) => ({ name: x.name, melds: x.melds }));
   }
 
   // Orden de la mano: por palo, por número o "a mi gusto" (arrastrando)
