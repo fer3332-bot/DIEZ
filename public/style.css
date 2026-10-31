@@ -448,3 +448,5 @@ html, body { overflow-x: hidden; }
 .dif.gana { background: #3fbf63; color: #fff; }
 .dif.pierde { background: #c8201b; color: #fff; }
 .etq.tendido { background: linear-gradient(#fff2b8, var(--oro)); color: #4a3305; }
+body, button, .carta, [data-act] { touch-action: manipulation; }
+.mano-wrap .carta { touch-action: pan-y; }

@@ -1194,12 +1194,8 @@
   // ---------- sin zoom ----------
   ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
   document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
-  let ultimoToque = 0;
-  document.addEventListener('touchend', (e) => {
-    const ahora = Date.now();
-    if (ahora - ultimoToque < 320 && !e.target.closest('input, textarea')) e.preventDefault();
-    ultimoToque = ahora;
-  }, { passive: false });
+  // (El doble toque no hace zoom gracias a touch-action: manipulation y al viewport;
+  //  no se bloquean toques rápidos para no perder selecciones de cartas.)
 
   // ---------- PWA ----------
   let deferredPrompt = null;
